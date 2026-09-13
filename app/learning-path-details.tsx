@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
   ScrollView,
@@ -35,53 +35,57 @@ export default function LearningPathDetailsScreen() {
 
   const scrollRef = useRef<ScrollView>(null);
 
-  const loadModules = useCallback(async () => {
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData?.user;
-    if (!user) return;
-
-    // 1. Fetch modules for this specific path
-    const { data: moduleData, error: moduleError } = await supabase
-      .from("learning_modules")
-      .select("*")
-      .eq("path_id", pathId)
-      .order("sort_order", { ascending: true });
-
-    if (moduleError || !moduleData) {
-      console.log("Error loading modules:", moduleError);
-      setLoading(false);
-      return;
-    }
-
-    // 2. Fetch user progress
-    const { data: progressData } = await supabase
-      .from("user_path_progress")
-      .select("module_id")
-      .eq("user_id", user.id);
-
-    const completedIds = new Set((progressData || []).map((p) => p.module_id));
-
-    // 3. Find where the user left off
-    let nextUnfinishedIndex = 0;
-    let allCompleted = true;
-
-    for (let i = 0; i < moduleData.length; i++) {
-      if (!completedIds.has(moduleData[i].id)) {
-        nextUnfinishedIndex = i;
-        allCompleted = false;
-        break;
-      }
-    }
-
-    // If they finished everything, let them review from the beginning
-    setModules(moduleData);
-    setActiveModuleIndex(allCompleted ? 0 : nextUnfinishedIndex);
-    setLoading(false);
-  }, [pathId]);
-
   useEffect(() => {
-    loadModules();
-  }, [loadModules]);
+    let cancelled = false;
+
+    async function loadModules() {
+      const { data: authData } = await supabase.auth.getUser();
+      const user = authData?.user;
+      if (!user) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      const { data: moduleData, error: moduleError } = await supabase
+        .from("learning_modules")
+        .select("*")
+        .eq("path_id", pathId)
+        .order("sort_order", { ascending: true });
+
+      if (moduleError || !moduleData) {
+        console.log("Error loading modules:", moduleError);
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      const { data: progressData } = await supabase
+        .from("user_path_progress")
+        .select("module_id")
+        .eq("user_id", user.id);
+      if (cancelled) return;
+
+      const completedIds = new Set((progressData || []).map((p) => p.module_id));
+      let nextUnfinishedIndex = 0;
+      let allCompleted = true;
+
+      for (let i = 0; i < moduleData.length; i++) {
+        if (!completedIds.has(moduleData[i].id)) {
+          nextUnfinishedIndex = i;
+          allCompleted = false;
+          break;
+        }
+      }
+
+      setModules(moduleData);
+      setActiveModuleIndex(allCompleted ? 0 : nextUnfinishedIndex);
+      setLoading(false);
+    }
+
+    void loadModules();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathId]);
 
   const markModuleComplete = async (skipNavigation = false) => {
     const currentModule = modules[activeModuleIndex];

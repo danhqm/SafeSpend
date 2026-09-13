@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -171,18 +171,28 @@ export default function HomeScreen() {
   const prevStreakRef = useRef<number>(0);
 
   useEffect(() => {
-    // Set up the daily smart reminders!
-    setupSmartNotifications();
+    void setupSmartNotifications();
+  }, []);
 
+  useEffect(() => {
     const prev = prevStreakRef.current;
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+    let showTimer: ReturnType<typeof setTimeout> | undefined;
     if (streakCount > prev) {
       const milestones = new Set([3, 7, 30]);
       if (milestones.has(streakCount)) {
-        setShowConfetti(true);
-        setTimeout(() => setShowConfetti(false), 2500);
+        showTimer = setTimeout(() => {
+          setShowConfetti(true);
+          hideTimer = setTimeout(() => setShowConfetti(false), 2500);
+        }, 0);
       }
     }
     prevStreakRef.current = streakCount;
+
+    return () => {
+      if (showTimer) clearTimeout(showTimer);
+      if (hideTimer) clearTimeout(hideTimer);
+    };
   }, [streakCount]);
 
   const progressPercent =
@@ -271,16 +281,6 @@ export default function HomeScreen() {
 
       setTotalExpense(sum);
       setMonthReceiptCount(monthReceipts.length);
-    }
-
-    const { data: allReceipts, error: allReceiptsError } = await supabase
-      .from("receipts")
-      .select("id")
-      .eq("user_id", user.id);
-
-    if (allReceiptsError) {
-      console.log("Home: all receipts error (for badges)", allReceiptsError);
-    } else {
     }
 
     // 2. BULLETPROOF LAST RECEIPT
@@ -538,8 +538,6 @@ export default function HomeScreen() {
   }, [loadData]);
 
   const maxWeekly = Math.max(...weeklyData.map((p) => p.total), 1);
-
-  const totalLast7Days = weeklyData.reduce((acc, p) => acc + p.total, 0);
 
   let suggestion = "Keep tracking your spending to build better habits.";
   if (progressPercent >= 80) {

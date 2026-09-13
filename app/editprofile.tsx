@@ -18,7 +18,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../utils/supabase"; // 🔁 adjust path if needed
 
 const PRIMARY = "#00D09E";
-const BG_LIGHT = "#E9FFF4";
 
 export default function EditProfileScreen() {
   const router = useRouter();

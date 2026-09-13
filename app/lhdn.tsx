@@ -2,7 +2,7 @@ import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -166,18 +166,12 @@ export default function LHDNClaimScreen() {
     Record<string, { spent: number; eligible: number; limit: number }>
   >({});
 
-  useEffect(() => {
-    if (activeTab === "Summary") {
-      calculateTaxRelief();
-    }
-  }, [activeTab]);
-
   const showInfo = (infoText: string) => {
     setCurrentInfoText(infoText);
     setInfoModalVisible(true);
   };
 
-  const calculateTaxRelief = async () => {
+  const calculateTaxRelief = useCallback(async () => {
     setDashboardLoading(true);
     try {
       const { data: authData } = await supabase.auth.getUser();
@@ -233,7 +227,15 @@ export default function LHDNClaimScreen() {
     } finally {
       setDashboardLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== "Summary") return;
+    const timer = setTimeout(() => {
+      void calculateTaxRelief();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activeTab, calculateTaxRelief]);
 
   const pickImageForCategory = async (subCategoryItem: any) => {
     try {
@@ -1059,7 +1061,7 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
   fullImageOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.9)",
     justifyContent: "center",
     alignItems: "center",

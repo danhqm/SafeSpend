@@ -4,26 +4,19 @@
     "slug": "SafeSpend",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/RiseFund-Light.png",
+    "icon": "./assets/images/RiseFund-AppIcon.png",
     "scheme": "risefund",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "backgroundColor": "#0E3E3E"
     },
-    "notification": {
-      "icon": "./assets/images/RiseFund-Light.png",
-      "color": "#00D09E"
-    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/RiseFund-Light.png",
-        "backgroundImage": "./assets/images/RiseFund-Light.png",
-        "monochromeImage": "./assets/images/RiseFund-Light.png"
+        "foregroundImage": "./assets/images/RiseFund-AppIcon.png",
+        "monochromeImage": "./assets/images/RiseFund-AppIcon.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
@@ -44,7 +37,17 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-image",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/RiseFund-AppIcon.png",
+          "color": "#00D09E"
+        }
+      ],
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

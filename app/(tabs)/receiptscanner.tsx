@@ -1,6 +1,6 @@
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import * as ImagePicker from "expo-image-picker";
 import React, { useCallback, useState } from "react";
 import {
@@ -17,7 +17,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { authenticatedApiFetch } from "../../utils/api";
 
 export default function ReceiptScanner() {
-  const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [receiptData, setReceiptData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,23 +26,7 @@ export default function ReceiptScanner() {
   const [allLoading, setAllLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadRecentReceipts();
-    }, []),
-  );
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await loadRecentReceipts();
-      if (viewAllVisible) await loadAllReceipts();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [viewAllVisible]);
-
-  const loadRecentReceipts = async () => {
+  const loadRecentReceipts = useCallback(async () => {
     const { data: authData } = await supabase.auth.getUser();
     const userId = authData?.user?.id;
     if (!userId) return;
@@ -58,9 +41,9 @@ export default function ReceiptScanner() {
       .limit(2);
 
     if (!error) setRecentReceipts(data || []);
-  };
+  }, []);
 
-  const loadAllReceipts = async () => {
+  const loadAllReceipts = useCallback(async () => {
     const { data: authData } = await supabase.auth.getUser();
     const userId = authData?.user?.id;
     if (!userId) return;
@@ -74,7 +57,23 @@ export default function ReceiptScanner() {
 
     if (!error) setAllReceipts(data || []);
     setAllLoading(false);
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadRecentReceipts();
+    }, [loadRecentReceipts]),
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadRecentReceipts();
+      if (viewAllVisible) await loadAllReceipts();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadAllReceipts, loadRecentReceipts, viewAllVisible]);
 
   const pickImage = async () => {
     setError(null);
@@ -96,7 +95,6 @@ export default function ReceiptScanner() {
     });
 
     if (!result.canceled && result.assets[0].base64) {
-      setImageUri(result.assets[0].uri);
       await scanReceipt(result.assets[0].base64);
     }
   };

@@ -83,6 +83,10 @@ export default function ProfileScreen() {
         .eq("user_id", user.id)
         .single();
 
+      if (profileError) {
+        console.log("Profile load error:", profileError.message);
+      }
+
       if (profile?.username) {
         setDisplayName(profile.username);
         setUserId(String(profile.id));
@@ -165,7 +169,6 @@ export default function ProfileScreen() {
 }
 
 const PRIMARY = "#00D09E";
-const BG_LIGHT = "#E9FFF4";
 
 const styles = StyleSheet.create({
   container: {

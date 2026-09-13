@@ -1,6 +1,6 @@
 // app/(tabs)/_layout.tsx
 import { Redirect, Tabs } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Animated, Image, View } from "react-native";
 import { supabase } from "../../utils/supabase";
 
@@ -11,7 +11,7 @@ function AnimatedTabIcon({
   source: any;
   focused: boolean;
 }) {
-  const scale = useRef(new Animated.Value(focused ? 1.1 : 1)).current;
+  const [scale] = useState(() => new Animated.Value(focused ? 1.1 : 1));
 
   useEffect(() => {
     Animated.spring(scale, {

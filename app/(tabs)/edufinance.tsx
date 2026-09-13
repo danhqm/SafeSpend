@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router/react-navigation";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
@@ -19,14 +19,6 @@ import { supabase } from "../../utils/supabase";
 
 const PRIMARY = "#00D09E";
 const CARD_BG = "#E9FFF4";
-
-function getTodayKeyLocal() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function computeStreak(dates: string[]): number {
   if (!dates.length) return 0;
@@ -104,7 +96,7 @@ export default function EduFinanceScreen() {
     "Tracking Every Ringgit": require("../../assets/images/wallet with cash.png"),
   };
 
-  const [selectedWeekStart, setSelectedWeekStart] = useState<string>(
+  const [selectedWeekStart] = useState<string>(
     toISODateOnly(getMonday(new Date())),
   );
 
@@ -133,10 +125,6 @@ export default function EduFinanceScreen() {
 
     setGoals((data as Goal[]) || []);
   }, []);
-
-  useEffect(() => {
-    loadGoals();
-  }, [loadGoals]);
 
   const addGoal = useCallback(async () => {
     const title = newGoalTitle.trim();

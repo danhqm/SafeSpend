@@ -13,6 +13,8 @@ SafeSpend is an Expo/React Native personal-finance app for tracking receipts, we
 
 ## Local setup
 
+SafeSpend uses Expo SDK 57 and requires Node.js 22.13 or newer.
+
 1. Install the app dependencies with `npm install`.
 2. Copy `.env.example` to `.env.local` and enter the public client settings.
 3. Install backend dependencies with `cd chatbot-backend && npm install`.
