@@ -1,4 +1,3 @@
--- REVIEW-ONLY: this migration has not been applied to the hosted project.
 -- It is intentionally transactional so a failed preflight rolls everything back.
 begin;
 
@@ -15,6 +14,20 @@ begin
   end if;
   if exists (select 1 from public.receipts where user_id is null) then
     raise exception 'Preflight failed: public.receipts contains a null user_id';
+  end if;
+  if exists (
+    select 1 from public.users profile
+    left join auth.users account on account.id = profile.user_id
+    where profile.user_id is not null and account.id is null
+  ) then
+    raise exception 'Preflight failed: public.users contains an orphaned user_id';
+  end if;
+  if exists (
+    select 1 from public.receipts receipt
+    left join auth.users account on account.id = receipt.user_id
+    where receipt.user_id is not null and account.id is null
+  ) then
+    raise exception 'Preflight failed: public.receipts contains an orphaned user_id';
   end if;
 end
 $$;
@@ -108,6 +121,8 @@ create index if not exists receipts_user_created_idx
   on public.receipts (user_id, created_at desc);
 create index if not exists receipts_user_lhdn_created_idx
   on public.receipts (user_id, lhdn_category, created_at desc);
+create index if not exists user_goals_user_week_created_idx
+  on public.user_goals (user_id, week_start desc, created_at desc);
 create index if not exists learning_modules_path_id_idx
   on public.learning_modules (path_id);
 create index if not exists user_path_progress_module_id_idx
@@ -209,8 +224,6 @@ create policy users_update_own on public.users for update to authenticated
 
 create policy receipts_select_own on public.receipts for select to authenticated
   using ((select auth.uid()) = user_id);
-create policy receipts_delete_own on public.receipts for delete to authenticated
-  using ((select auth.uid()) = user_id);
 
 create policy user_goals_select_own on public.user_goals for select to authenticated
   using ((select auth.uid()) = user_id);
@@ -240,12 +253,19 @@ create policy user_streaks_insert_own on public.user_streaks for insert to authe
 revoke all on public.users, public.receipts, public.user_goals,
   public.user_path_progress, public.user_streaks,
   public.learning_paths, public.learning_modules from anon;
-grant select, update on public.users to authenticated;
-grant select, delete on public.receipts to authenticated;
+revoke all on public.users, public.receipts, public.user_goals,
+  public.user_path_progress, public.user_streaks,
+  public.learning_paths, public.learning_modules from authenticated;
+grant select on public.users to authenticated;
+grant update (username, mobile, dob, monthly_income, avatar_url)
+  on public.users to authenticated;
+grant select on public.receipts to authenticated;
 grant select, insert, update, delete on public.user_goals to authenticated;
 grant select, insert, update, delete on public.user_path_progress to authenticated;
 grant select, insert on public.user_streaks to authenticated;
 grant select on public.learning_paths, public.learning_modules to authenticated;
+revoke all on sequence public.user_streaks_id_seq from anon;
+grant usage, select on sequence public.user_streaks_id_seq to authenticated;
 
 -- Private buckets: backend uploads receipts; authenticated users receive short-lived URLs.
 update storage.buckets
