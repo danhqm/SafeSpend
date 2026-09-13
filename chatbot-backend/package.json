@@ -8,6 +8,6 @@
     "zod": "^3.25.76"
   },
   "scripts": {
-    "check": "node --check lib/supabase.js && node --check lib/http.js && node --check api/chat.js && node --check api/fin-insights.js && node --check api/ocr.js && node --check api/receipts.js && node --check api/set-password.js"
+    "check": "node --check lib/supabase.js && node --check lib/http.js && node --check lib/rate-limit.js && node --check api/chat.js && node --check api/fin-insights.js && node --check api/ocr.js && node --check api/receipts.js && node --check api/set-password.js"
   }
 }

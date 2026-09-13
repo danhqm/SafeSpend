@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { z } from "zod";
 import { prepareResponse, requireUser, serverError } from "../lib/http.js";
+import { enforceRateLimit } from "../lib/rate-limit.js";
 import { supabaseAdmin } from "../lib/supabase.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -77,6 +78,8 @@ export default async function handler(req, res) {
         error: "Image must be a JPEG or PNG no larger than 5 MB",
       });
     }
+
+    if (!(await enforceRateLimit(res, user.id, "ocr"))) return;
 
     objectPath = `${user.id}/${randomUUID()}.${imageType.extension}`;
     const { error: uploadError } = await supabaseAdmin.storage

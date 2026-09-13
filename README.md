@@ -7,6 +7,7 @@ SafeSpend is an Expo/React Native personal-finance app for tracking receipts, we
 - The Expo client uses only a Supabase publishable key. Never put a secret or service-role key in `app.config.js`, an `EXPO_PUBLIC_*` variable, or an Expo build.
 - Every backend endpoint requires `Authorization: Bearer <Supabase access token>` and derives the user ID from that verified token.
 - `OWNER_USER_ID` can restrict all backend APIs to one Supabase Auth user.
+- Paid AI endpoints enforce atomic per-user burst and daily quotas in Postgres. If the quota service is unavailable, requests fail closed before any OpenAI call.
 - Database tables use row-level security (RLS). Receipt images are private and are displayed with short-lived signed URLs.
 - AI output is untrusted data and is validated before it is stored or returned.
 
@@ -22,17 +23,17 @@ Do not commit either populated environment file.
 
 ## Database changes
 
-The `supabase/migrations` directory is the source of truth for database changes. The current hardening migration was generated with the Supabase CLI and is review-only until explicitly applied.
+The `supabase/migrations` directory is the source of truth for database changes. The hosted project currently includes the hardening and API-quota migrations in this directory.
 
-Before applying it:
+Before applying future migrations:
 
 1. Back up the hosted database and the `receipts` storage bucket.
-2. Review the preflight checks, column rename, old empty `password` column removal, policy replacement, and storage privacy changes.
+2. Review structural changes, policy changes, grants, and storage privacy changes.
 3. Test it against a separate Supabase project restored from representative data.
 4. Confirm existing receipt images open through signed URLs.
 5. Apply with `supabase db push` only after the test project passes.
 
-For a single-user installation, first confirm the owner's Auth UUID, set the backend `OWNER_USER_ID`, and then disable public sign-ups in Supabase Auth after the owner account is usable.
+For a single-user installation, confirm the owner's Auth UUID and set the backend `OWNER_USER_ID`. For a shared installation, leave `OWNER_USER_ID` unset; public sign-ups can remain enabled and RLS keeps each user's data isolated.
 
 ## Checks
 
@@ -47,9 +48,9 @@ npm run check
 
 - Rotate any secret that was ever placed in a mobile bundle or committed to source control.
 - Configure the Expo public variables and Vercel server variables separately.
-- Set `OWNER_USER_ID` on Vercel for personal-only access.
-- Disable Supabase public sign-ups after confirming the owner account.
+- Set `OWNER_USER_ID` on Vercel only for personal-only access; leave it unset for multi-user access.
+- Keep Supabase public sign-ups enabled only when new users should be able to register.
 - Enable leaked-password protection and MFA for the owner account.
 - Deploy the backend near the Supabase region where possible.
-- Add rate limits for `/api/chat`, `/api/ocr`, and `/api/fin-insights` before sharing any URL.
+- Review the per-user burst and daily quotas for `/api/chat`, `/api/ocr`, and `/api/fin-insights` before sharing any URL.
 - Verify login, receipt scan, signed-image viewing, deletion, insights, and logout end to end.

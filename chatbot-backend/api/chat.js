@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { prepareResponse, requireUser, serverError } from "../lib/http.js";
+import { enforceRateLimit } from "../lib/rate-limit.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const requestSchema = z.object({
@@ -29,6 +30,8 @@ export default async function handler(req, res) {
   if (!parsed.success) {
     return res.status(400).json({ success: false, error: "Invalid chat request" });
   }
+
+  if (!(await enforceRateLimit(res, user.id, "chat"))) return;
 
   try {
     const response = await openai.chat.completions.create({
