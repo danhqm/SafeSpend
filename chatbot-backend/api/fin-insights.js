@@ -1,98 +1,88 @@
-// api/fin-insights.js
-import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
-);
+import { z } from "zod";
+import { prepareResponse, requireUser, serverError } from "../lib/http.js";
+import { supabaseAdmin } from "../lib/supabase.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-function safeNumber(n, fallback = 0) {
-  const x = typeof n === "number" ? n : parseFloat(String(n ?? ""));
-  return Number.isFinite(x) ? x : fallback;
-}
+const finiteNumber = z.coerce.number().finite().nonnegative();
+const requestSchema = z.object({
+  monthlyIncome: finiteNumber.optional(),
+  weeklyIncomeEstimate: finiteNumber.optional(),
+  weeklyExpense: finiteNumber.default(0),
+  topSpendCategories: z
+    .array(z.object({ category: z.string().max(80), amount: finiteNumber }))
+    .max(10)
+    .default([]),
+  weeklyGoals: z
+    .array(
+      z.object({
+        title: z.string().max(200),
+        notes: z.string().max(500).nullish(),
+        completed: z.boolean().optional(),
+        week_start: z.string().max(20).nullish(),
+      }),
+    )
+    .max(20)
+    .default([]),
+  weekStartStr: z.string().max(20).optional(),
+  weekEndStr: z.string().max(20).optional(),
+});
 
 function extractRMAmount(text) {
-  if (!text) return null;
-  const m = String(text).match(/rm\s*([0-9]+(?:\.[0-9]+)?)/i);
-  if (!m) return null;
-  const val = parseFloat(m[1]);
-  return Number.isFinite(val) ? val : null;
+  const match = String(text ?? "").match(/rm\s*([0-9]+(?:\.[0-9]+)?)/i);
+  const value = match ? Number(match[1]) : NaN;
+  return Number.isFinite(value) ? value : null;
 }
 
 export default async function handler(req, res) {
-  console.log("🤖 /api/fin-insights invoked");
-
+  if (!prepareResponse(req, res)) return;
   if (req.method !== "POST") {
-    return res
-      .status(405)
-      .json({ success: false, error: "Method not allowed" });
+    return res.status(405).json({ success: false, error: "Method not allowed" });
+  }
+
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const parsed = requestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: "Invalid insights request" });
   }
 
   try {
-    const body = req.body || {};
-    const { userId } = body;
-
-    if (!userId) {
-      return res.status(400).json({ success: false, error: "Missing userId" });
-    }
-
-    let {
-      monthlyIncome,
-      weeklyIncomeEstimate,
-      weeklyExpense,
-      topSpendCategories,
-      weeklyGoals,
-      weekStartStr,
-      weekEndStr,
-    } = body;
-
-    if (monthlyIncome === undefined || monthlyIncome === null) {
-      const { data: profile, error: profileErr } = await supabase
+    const body = parsed.data;
+    let monthlyIncome = body.monthlyIncome;
+    if (monthlyIncome === undefined) {
+      let { data, error } = await supabaseAdmin
         .from("users")
         .select("monthly_income")
-        .eq("user_id", userId)
+        .eq("user_id", user.id)
         .maybeSingle();
-
-      if (profileErr) console.log("⚠️ profile income fetch error:", profileErr);
-
-      monthlyIncome = safeNumber(profile?.monthly_income, 0);
-    } else {
-      monthlyIncome = safeNumber(monthlyIncome, 0);
+      // Temporary compatibility with the existing production schema. Remove this
+      // fallback after 20260909154818_harden_personal_app.sql is applied.
+      if (error?.code === "42703") {
+        ({ data, error } = await supabaseAdmin
+          .from("users")
+          .select("monthy_income")
+          .eq("user_id", user.id)
+          .maybeSingle());
+      }
+      if (error) throw error;
+      monthlyIncome = Number(data?.monthly_income ?? data?.monthy_income ?? 0);
     }
 
-    weeklyIncomeEstimate =
-      weeklyIncomeEstimate !== undefined && weeklyIncomeEstimate !== null
-        ? safeNumber(
-            weeklyIncomeEstimate,
-            monthlyIncome > 0 ? monthlyIncome / 4 : 0,
-          )
-        : monthlyIncome > 0
-          ? monthlyIncome / 4
-          : 0;
-
-    weeklyExpense = safeNumber(weeklyExpense, 0);
-
-    topSpendCategories = Array.isArray(topSpendCategories)
-      ? topSpendCategories
-      : [];
-    weeklyGoals = Array.isArray(weeklyGoals) ? weeklyGoals : [];
-
-    if (!weeklyGoals.length && weekStartStr) {
-      const { data: goals, error: goalsErr } = await supabase
+    let weeklyGoals = body.weeklyGoals;
+    if (!weeklyGoals.length && body.weekStartStr) {
+      const { data, error } = await supabaseAdmin
         .from("user_goals")
         .select("title, notes, completed, week_start")
-        .eq("user_id", userId)
-        .eq("week_start", weekStartStr);
-
-      if (goalsErr) console.log("⚠️ goals fetch error:", goalsErr);
-      weeklyGoals = goals || [];
+        .eq("user_id", user.id)
+        .eq("week_start", body.weekStartStr);
+      if (error) throw error;
+      weeklyGoals = data ?? [];
     }
 
-    if (!monthlyIncome && weeklyExpense === 0 && weeklyGoals.length === 0) {
-      return res.json({
+    if (!monthlyIncome && body.weeklyExpense === 0 && weeklyGoals.length === 0) {
+      return res.status(200).json({
         success: true,
         insights: [
           "Set your monthly income and scan a few receipts so Fin can personalize insights for you.",
@@ -100,101 +90,45 @@ export default async function handler(req, res) {
       });
     }
 
-    const goalsForAI = weeklyGoals.map((g) => ({
-      title: g.title,
-      notes: g.notes,
-      completed: !!g.completed,
-
-      target_rm: extractRMAmount(g.title) ?? extractRMAmount(g.notes),
-      week_start: g.week_start,
-    }));
-
     const context = {
       currency: "MYR",
-      timeframe: {
-        weekStart: weekStartStr ?? null,
-        weekEnd: weekEndStr ?? null,
-      },
+      timeframe: { weekStart: body.weekStartStr ?? null, weekEnd: body.weekEndStr ?? null },
       income: {
-        monthly_rm: Number(monthlyIncome.toFixed(2)),
-        weekly_estimate_rm: Number(weeklyIncomeEstimate.toFixed(2)),
+        monthly_rm: Number((monthlyIncome ?? 0).toFixed(2)),
+        weekly_estimate_rm: Number(
+          (body.weeklyIncomeEstimate ?? (monthlyIncome ?? 0) / 4).toFixed(2),
+        ),
       },
       spending: {
-        weekly_total_rm: Number(weeklyExpense.toFixed(2)),
-        top_categories: topSpendCategories.map((c) => ({
-          category: c.category,
-          amount_rm: Number(safeNumber(c.amount, 0).toFixed(2)),
-        })),
+        weekly_total_rm: Number(body.weeklyExpense.toFixed(2)),
+        top_categories: body.topSpendCategories,
       },
-      goals: goalsForAI,
+      goals: weeklyGoals.map((goal) => ({
+        ...goal,
+        target_rm: extractRMAmount(goal.title) ?? extractRMAmount(goal.notes),
+      })),
     };
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Faster, cheaper, and actually exists!
+      model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini",
+      response_format: { type: "json_object" },
       messages: [
         {
-          role: "user",
-          // ✅ FIX 3: For text-only requests, 'content' can just be a standard string
+          role: "system",
           content:
-            "You are Fin, a friendly AI finance coach in a Malaysian student finance app.\n" +
-            "Use the user's weekly spending, monthly income, and weekly goals to give PERSONALIZED recommendations.\n\n" +
-            "Rules:\n" +
-            "- Write 2 bullet-style insights (short sentences, not long paragraphs).\n" +
-            "- Be specific with RM amounts from the data.\n" +
-            "- If the user reached a savings goal, celebrate. You can be playful, but DO NOT encourage reckless spending.\n" +
-            "  (Instead say something like: 'You hit your goal — nice! Keep a small buffer, and you can treat yourself within RMX.')\n" +
-            "- If not reached, give 1–2 actionable suggestions tied to their top spending category.\n" +
-            "- If monthly income is missing/0, gently ask them to set it.\n" +
-            "- Return ONLY valid JSON: an array of strings. No markdown, no extra fields.\n\n" +
-            "User data JSON:\n" +
-            JSON.stringify(context, null, 2) +
-            "\n\nReturn JSON array only like:\n" +
-            '["Insight 1", "Insight 2", "Insight 3"]',
+            'Return only JSON shaped as {"insights":["..."]}. Provide exactly two short, practical insights for a Malaysian personal-finance app. Use supplied RM amounts, celebrate progress without encouraging reckless spending, and never claim to be a licensed financial adviser.',
         },
+        { role: "user", content: JSON.stringify(context) },
       ],
     });
 
-    // ✅ FIX 4: Correctly parse the standard OpenAI response object
-    const outputText = response.choices[0]?.message?.content || "";
-
-    if (!outputText) {
-      throw new Error("No text output from OpenAI for insights");
-    }
-
-    const cleaned = outputText
-      .replace(/```json/gi, "")
-      .replace(/```/g, "")
-      .trim();
-
-    let insights;
-    try {
-      insights = JSON.parse(cleaned);
-      if (!Array.isArray(insights)) throw new Error("Output is not an array");
-      insights = insights
-        .filter((x) => typeof x === "string")
-        .map((x) => x.trim())
-        .filter(Boolean)
-        .slice(0, 5);
-    } catch (parseErr) {
-      console.error("❌ Failed to parse AI insights JSON:", parseErr, cleaned);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to parse AI insights output",
-      });
-    }
-
-    // Fallback if AI returns empty
-    if (!insights.length) {
-      insights = [
-        "Fin couldn’t generate insights right now — try again after scanning more receipts.",
-      ];
-    }
-
-    return res.json({ success: true, insights });
-  } catch (err) {
-    console.error("💥 /api/fin-insights top-level error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Unexpected server error" });
+    const content = response.choices[0]?.message?.content;
+    const insights = z
+      .object({ insights: z.array(z.string().trim().min(1)).min(1).max(5) })
+      .parse(JSON.parse(content ?? "{}"))
+      .insights;
+    return res.status(200).json({ success: true, insights });
+  } catch (error) {
+    return serverError(res, "Financial insights request failed", error);
   }
 }

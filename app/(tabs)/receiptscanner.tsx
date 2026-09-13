@@ -14,8 +14,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-const OCR_API_URL = `${process.env.EXPO_PUBLIC_API_URL}/api/ocr`;
+import { authenticatedApiFetch } from "../../utils/api";
 
 export default function ReceiptScanner() {
   const [imageUri, setImageUri] = useState<string | null>(null);
@@ -107,25 +106,10 @@ export default function ReceiptScanner() {
     setReceiptData(null);
     setError(null);
 
-    const { data: authData } = await supabase.auth.getUser();
-    const userId = authData?.user?.id;
-
-    if (!userId) {
-      setError("You need to be logged in to scan receipts.");
-      setLoading(false);
-      return;
-    }
-
-    await loadRecentReceipts();
-
     try {
-      const res = await fetch(OCR_API_URL, {
+      const res = await authenticatedApiFetch("/api/ocr", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: base64,
-          userId,
-        }),
+        body: JSON.stringify({ imageBase64: base64 }),
       });
 
       const text = await res.text();
@@ -145,6 +129,7 @@ export default function ReceiptScanner() {
       }
 
       setReceiptData(data.data);
+      await loadRecentReceipts();
     } catch (err: unknown) {
       console.error("Fetch error:", err);
       if (err instanceof Error) setError(err.message);

@@ -9,10 +9,12 @@ const extra =
   {};
 
 const supabaseUrl = extra.supabaseUrl;
-const supabaseServiceRoleKey = extra.supabaseServiceRoleKey;
+const supabasePublishableKey = extra.supabasePublishableKey;
 
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error("Supabase environment variables not loaded");
+if (!supabaseUrl || !supabasePublishableKey) {
+  throw new Error(
+    "Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+  );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+export const supabase = createClient(supabaseUrl, supabasePublishableKey);

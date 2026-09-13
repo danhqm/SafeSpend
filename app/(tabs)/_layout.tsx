@@ -1,7 +1,8 @@
 // app/(tabs)/_layout.tsx
-import { Tabs } from "expo-router";
-import { useEffect, useRef } from "react";
-import { Animated, Image } from "react-native";
+import { Redirect, Tabs } from "expo-router";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Animated, Image, View } from "react-native";
+import { supabase } from "../../utils/supabase";
 
 function AnimatedTabIcon({
   source,
@@ -19,7 +20,7 @@ function AnimatedTabIcon({
       tension: 120,
       friction: 10,
     }).start();
-  }, [focused]);
+  }, [focused, scale]);
 
   return (
     <Animated.View
@@ -49,6 +50,36 @@ function AnimatedTabIcon({
 }
 
 export default function TabsLayout() {
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [signedIn, setSignedIn] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setSignedIn(Boolean(data.session));
+      setCheckingSession(false);
+    });
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedIn(Boolean(session));
+      setCheckingSession(false);
+    });
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  if (checkingSession) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color="#00D09E" />
+      </View>
+    );
+  }
+
+  if (!signedIn) return <Redirect href="/login" />;
+
   return (
     <Tabs
       screenOptions={{

@@ -14,28 +14,17 @@ import { supabase } from "../utils/supabase";
 export default function Login() {
   const router = useRouter();
 
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const handleLogin = async () => {
-    if (!username || !password) {
+    if (!email.trim() || !password) {
       Alert.alert("Error", "Please fill all fields");
       return;
     }
 
-    const { data: userProfile, error: profileError } = await supabase
-      .from("users")
-      .select("email")
-      .eq("username", username)
-      .single();
-
-    if (profileError || !userProfile) {
-      Alert.alert("Login Failed", "Username not found");
-      return;
-    }
-
     const { error: authError } = await supabase.auth.signInWithPassword({
-      email: userProfile.email,
+      email: email.trim().toLowerCase(),
       password,
     });
 
@@ -55,26 +44,20 @@ export default function Login() {
   };
 
   const handleResendVerification = async () => {
-    if (!username) {
-      Alert.alert("Error", "Please enter your username first");
+    if (!email.trim()) {
+      Alert.alert("Error", "Please enter your email first");
       return;
     }
 
-    const { data: userProfile } = await supabase
-      .from("users")
-      .select("email")
-      .eq("username", username)
-      .single();
-
-    if (!userProfile) {
-      Alert.alert("Error", "Username not found");
-      return;
-    }
-
-    await supabase.auth.resend({
+    const { error } = await supabase.auth.resend({
       type: "signup",
-      email: userProfile.email,
+      email: email.trim().toLowerCase(),
     });
+
+    if (error) {
+      Alert.alert("Error", error.message);
+      return;
+    }
 
     Alert.alert(
       "Verification sent",
@@ -87,13 +70,15 @@ export default function Login() {
       <Text style={styles.header}>Welcome</Text>
 
       <View style={styles.card}>
-        <Text style={styles.label}>Username</Text>
+        <Text style={styles.label}>Email</Text>
         <TextInput
-          placeholder="Username"
+          placeholder="Email"
           placeholderTextColor="#9DBDB0"
           style={styles.input}
-          value={username}
-          onChangeText={setUsername}
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
         />
         <Text style={styles.label}>Password</Text>
         <View style={styles.passwordContainer}>

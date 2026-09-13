@@ -228,7 +228,7 @@ export default function LearningPathDetailsScreen() {
             <Text style={styles.actionHeroEmoji}>🎯</Text>
             <Text style={styles.moduleTitle}>{currentModule.title}</Text>
             <Text style={styles.slideBody}>
-              It's time to put your knowledge into practice.
+              It&apos;s time to put your knowledge into practice.
             </Text>
           </View>
 

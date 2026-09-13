@@ -15,8 +15,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-const OCR_API_URL = `${process.env.EXPO_PUBLIC_API_URL}/api/ocr`;
+import { authenticatedApiFetch } from "../utils/api";
+import { addSignedReceiptImage } from "../utils/receipt-images";
 
 const TABS = [
   "Summary",
@@ -188,6 +188,7 @@ export default function LHDNClaimScreen() {
         .from("receipts")
         .select("total_amount, lhdn_category, ai_validation_passed")
         .eq("user_id", userId)
+        .eq("tax_year", new Date().getFullYear())
         .not("lhdn_category", "is", null);
 
       if (error) throw error;
@@ -264,16 +265,10 @@ export default function LHDNClaimScreen() {
     setLoading(true);
     setScanningId(subCategoryItem.id);
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) return;
-
-      const res = await fetch(OCR_API_URL, {
+      const res = await authenticatedApiFetch("/api/ocr", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageBase64: base64,
-          userId,
           lhdnCategory: activeTab,
           lhdnSubcategory: subCategoryItem.id,
         }),
@@ -317,7 +312,10 @@ export default function LHDNClaimScreen() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setSavedReceipts(data || []);
+      const receiptsWithSignedImages = await Promise.all(
+        (data || []).map(addSignedReceiptImage),
+      );
+      setSavedReceipts(receiptsWithSignedImages);
     } catch (err) {
       console.error("Fetch error:", err);
     } finally {
@@ -336,12 +334,11 @@ export default function LHDNClaimScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              const { error } = await supabase
-                .from("receipts")
-                .delete()
-                .eq("id", receiptId);
-
-              if (error) throw error;
+              const response = await authenticatedApiFetch(
+                `/api/receipts?id=${encodeURIComponent(receiptId)}`,
+                { method: "DELETE" },
+              );
+              if (!response.ok) throw new Error("Receipt deletion failed");
 
               setSavedReceipts((prev) =>
                 prev.filter((r) => r.id !== receiptId),

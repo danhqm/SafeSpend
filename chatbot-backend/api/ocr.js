@@ -1,301 +1,145 @@
-//api/ocr.js
-import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
-);
+import { z } from "zod";
+import { prepareResponse, requireUser, serverError } from "../lib/http.js";
+import { supabaseAdmin } from "../lib/supabase.js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const categories = [
+  "FOOD_AND_DRINK",
+  "GROCERIES",
+  "TRANSPORT",
+  "SHOPPING",
+  "BILLS",
+  "ENTERTAINMENT",
+  "OTHER",
+];
+const requestSchema = z.object({
+  imageBase64: z.string().min(1),
+  lhdnCategory: z.string().trim().max(120).optional(),
+  lhdnSubcategory: z.string().trim().max(200).optional(),
+});
+const receiptSchema = z.object({
+  merchant_name: z.string().trim().min(1).max(250),
+  total_amount: z.coerce.number().finite().nonnegative(),
+  receipt_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  items: z.array(z.object({ name: z.string().max(300), price: z.coerce.number() })).max(100),
+  category: z.string().optional(),
+  is_valid_claim: z.boolean().optional(),
+});
 
-function categorizeLine(desc = "") {
-  const d = desc.toLowerCase();
+export const config = { api: { bodyParser: { sizeLimit: "7mb" } } };
 
-  if (
-    d.includes("kfc") ||
-    d.includes("mcd") ||
-    d.includes("mcdonald") ||
-    d.includes("burger king") ||
-    d.includes("starbucks") ||
-    d.includes("restaurant") ||
-    d.includes("cafe")
-  ) {
-    return "FOOD_AND_DRINK";
+function identifyImage(buffer) {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { contentType: "image/jpeg", extension: "jpg" };
   }
-
   if (
-    d.includes("tesco") ||
-    d.includes("lotus") ||
-    d.includes("jaya grocer") ||
-    d.includes("aeon") ||
-    d.includes("grocer")
+    buffer.length >= 8 &&
+    buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
   ) {
-    return "GROCERIES";
+    return { contentType: "image/png", extension: "png" };
   }
-
-  if (
-    d.includes("grab") ||
-    d.includes("gojek") ||
-    d.includes("taxi") ||
-    d.includes("toll") ||
-    d.includes("petrol") ||
-    d.includes("fuel")
-  ) {
-    return "TRANSPORT";
-  }
-
-  if (
-    d.includes("shopee") ||
-    d.includes("lazada") ||
-    d.includes("zalora") ||
-    d.includes("uniqlo") ||
-    d.includes("mall") ||
-    d.includes("store")
-  ) {
-    return "SHOPPING";
-  }
-
-  if (
-    d.includes("maxis") ||
-    d.includes("celcom") ||
-    d.includes("digi") ||
-    d.includes("tng") ||
-    d.includes("touch n go") ||
-    d.includes("electric") ||
-    d.includes("water") ||
-    d.includes("bill")
-  ) {
-    return "BILLS";
-  }
-
-  if (
-    d.includes("netflix") ||
-    d.includes("spotify") ||
-    d.includes("cinema") ||
-    d.includes("movie") ||
-    d.includes("game")
-  ) {
-    return "ENTERTAINMENT";
-  }
-
-  return "OTHER";
+  return null;
 }
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "10mb",
-    },
-  },
-};
+function extractionPrompt(lhdnCategory) {
+  const common =
+    'Extract the receipt and return one JSON object with merchant_name, total_amount, receipt_date in YYYY-MM-DD, and items as [{"name":"...","price":0}]. ';
+  if (lhdnCategory) {
+    return `${common}The user claims LHDN tax-relief category "${lhdnCategory}". Add is_valid_claim as a boolean after checking whether the visible items support that category.`;
+  }
+  return `${common}Add category using exactly one of: ${categories.join(", ")}.`;
+}
 
 export default async function handler(req, res) {
-  console.log("🚀 /api/ocr invoked");
-
+  if (!prepareResponse(req, res)) return;
   if (req.method !== "POST") {
-    return res
-      .status(405)
-      .json({ success: false, error: "Method not allowed" });
+    return res.status(405).json({ success: false, error: "Method not allowed" });
   }
 
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const parsed = requestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: "Invalid OCR request" });
+  }
+
+  let objectPath;
   try {
-    // 🌟 NEW 1: Catch the LHDN categories from the React Native app
-    const { imageBase64, userId, lhdnCategory, lhdnSubcategory } =
-      req.body || {};
-    console.log("BODY:", {
-      hasImage: !!imageBase64,
-      userId,
-      lhdnCategory,
-      lhdnSubcategory,
+    const image = Buffer.from(parsed.data.imageBase64, "base64");
+    const imageType = identifyImage(image);
+    if (!image.length || image.length > MAX_IMAGE_BYTES || !imageType) {
+      return res.status(400).json({
+        success: false,
+        error: "Image must be a JPEG or PNG no larger than 5 MB",
+      });
+    }
+
+    objectPath = `${user.id}/${randomUUID()}.${imageType.extension}`;
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from("receipts")
+      .upload(objectPath, image, { contentType: imageType.contentType, upsert: false });
+    if (uploadError) throw uploadError;
+
+    const { data: signed, error: signedError } = await supabaseAdmin.storage
+      .from("receipts")
+      .createSignedUrl(objectPath, 300);
+    if (signedError) throw signedError;
+
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_VISION_MODEL ?? "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: extractionPrompt(parsed.data.lhdnCategory) },
+            { type: "image_url", image_url: { url: signed.signedUrl } },
+          ],
+        },
+      ],
     });
 
-    if (!imageBase64 || !userId) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Missing imageBase64 or userId" });
-    }
+    const receipt = receiptSchema.parse(
+      JSON.parse(response.choices[0]?.message?.content ?? "{}"),
+    );
+    const category = parsed.data.lhdnCategory
+      ? "TAX_RELIEF"
+      : categories.includes(receipt.category?.toUpperCase())
+        ? receipt.category.toUpperCase()
+        : "OTHER";
+    const receiptYear = Number(receipt.receipt_date.slice(0, 4));
 
-    let imageUrl;
-    try {
-      console.log("📤 Uploading image to Supabase...");
-      const fileName = `receipt-${Date.now()}.jpg`;
+    const { data, error: insertError } = await supabaseAdmin
+      .from("receipts")
+      .insert({
+        user_id: user.id,
+        merchant_name: receipt.merchant_name,
+        total_amount: receipt.total_amount,
+        receipt_date: receipt.receipt_date,
+        items: receipt.items,
+        image_url: objectPath,
+        category,
+        lhdn_category: parsed.data.lhdnCategory ?? null,
+        lhdn_subcategory: parsed.data.lhdnSubcategory ?? null,
+        tax_year: parsed.data.lhdnCategory ? receiptYear : null,
+        ai_validation_passed: receipt.is_valid_claim ?? null,
+      })
+      .select()
+      .single();
+    if (insertError) throw insertError;
 
-      const { error: uploadError } = await supabase.storage
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    if (objectPath) {
+      const { error: cleanupError } = await supabaseAdmin.storage
         .from("receipts")
-        .upload(fileName, Buffer.from(imageBase64, "base64"), {
-          contentType: "image/jpeg",
-          upsert: true,
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: publicUrlData } = supabase.storage
-        .from("receipts")
-        .getPublicUrl(fileName);
-
-      imageUrl = publicUrlData.publicUrl;
-      console.log("✅ Image uploaded, signed URL:", imageUrl);
-    } catch (err) {
-      console.error("❌ Supabase upload error:", err);
-      return res
-        .status(500)
-        .json({ success: false, error: "Supabase upload failed" });
+        .remove([objectPath]);
+      if (cleanupError) console.error("Failed to clean up OCR upload", cleanupError);
     }
-
-    let receiptData;
-    let finalCategory = "OTHER";
-
-    try {
-      console.log("🤖 Sending image to OpenAI for analysis...");
-
-      let promptText =
-        "Extract the receipt data from this image. Return ONLY valid JSON. No code fences, no commentary. ";
-
-      if (lhdnCategory) {
-        promptText += `The user claims this receipt is for LHDN tax relief category: '${lhdnCategory}'. Validate if the items make sense for this claim. `;
-        promptText += `Format: { "merchant_name": "string", "total_amount": number, "receipt_date": "YYYY-MM-DD", "items": [{"name": "string", "price": number}], "is_valid_claim": boolean }`;
-      } else {
-        promptText +=
-          "You are an expert personal finance assistant. Analyze the merchant name and the purchased items to determine the overarching spending category. ";
-        promptText +=
-          "You MUST categorize the receipt into exactly one of these predefined categories based on their definitions: ";
-        promptText +=
-          "1. 'FOOD_AND_DRINK': Prepared meals, restaurants, cafes, and fast food. ";
-        promptText +=
-          "2. 'GROCERIES': Supermarkets, raw food ingredients, and basic household consumables. ";
-        promptText +=
-          "3. 'TRANSPORT': Commuting, ride-hailing, petrol, parking, and tolls. ";
-        promptText +=
-          "4. 'SHOPPING': Retail goods, physical products, e-commerce, electronics, hardware, clothing, and personal items. ";
-        promptText +=
-          "5. 'BILLS': Utilities, telecommunications, and recurring services. ";
-        promptText +=
-          "6. 'ENTERTAINMENT': Leisure activities, movies, gaming, and digital subscriptions. ";
-        promptText +=
-          "7. 'OTHER': Only use this as a last resort if it truly fits none of the above concepts. ";
-        promptText += `Return the exact category string. Format: { "merchant_name": "string", "total_amount": number, "receipt_date": "YYYY-MM-DD", "items": [{"name": "string", "price": number}], "category": "SHOPPING" }`;
-      }
-
-      // ✅ FIX 1 & 2: Use chat.completions and 'messages'
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" }, // Pro-tip: Forces OpenAI to return valid JSON
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text", // ✅ FIX 3: Must be "text"
-                text: promptText,
-              },
-              {
-                type: "image_url", // ✅ FIX 3: Must be "image_url"
-                image_url: {
-                  url: imageUrl, // Must be passed inside a 'url' object
-                },
-              },
-            ],
-          },
-        ],
-      });
-
-      console.log("🔍 Raw OpenAI response:", JSON.stringify(response, null, 2));
-
-      // ✅ FIX 4: Correctly parse the standard OpenAI response object
-      const outputText = response.choices[0]?.message?.content || "";
-
-      if (!outputText) {
-        throw new Error("No text output from OpenAI");
-      }
-
-      console.log("📝 OpenAI output text:", outputText);
-
-      // (The rest of your cleaning and JSON parsing remains exactly the same!)
-      const cleaned = outputText
-        .replace(/```json/gi, "")
-        .replace(/```/g, "")
-        .trim();
-
-      console.log("🧽 CLEANED JSON:", cleaned);
-
-      receiptData = JSON.parse(cleaned);
-
-      if (!lhdnCategory) {
-        const llmCategory = (receiptData.category || "").toUpperCase();
-        const validCategories = [
-          "FOOD_AND_DRINK",
-          "GROCERIES",
-          "TRANSPORT",
-          "SHOPPING",
-          "BILLS",
-          "ENTERTAINMENT",
-          "OTHER",
-        ];
-
-        finalCategory = validCategories.includes(llmCategory)
-          ? llmCategory
-          : categorizeLine(
-              receiptData.merchant_name ||
-                JSON.stringify(receiptData.items || []),
-            );
-      } else {
-        finalCategory = "TAX_RELIEF"; // Overwrite the main category if it's an LHDN claim
-      }
-    } catch (err) {
-      console.error("❌ OpenAI extraction error:", err);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to extract receipt data from image",
-      });
-    }
-
-    let savedReceipt;
-    try {
-      console.log("💾 Inserting receipt into Supabase table...");
-
-      // 🌟 NEW 3: Calculate the year and insert the 3 new fields into Supabase
-      const currentTaxYear = new Date().getFullYear();
-
-      const { data, error: insertError } = await supabase
-        .from("receipts")
-        .insert([
-          {
-            user_id: userId,
-            merchant_name: receiptData.merchant_name,
-            total_amount: receiptData.total_amount,
-            receipt_date: receiptData.receipt_date,
-            items: receiptData.items,
-            image_url: imageUrl,
-            category: finalCategory,
-            lhdn_category: lhdnCategory || null,
-            lhdn_subcategory: lhdnSubcategory || null,
-            tax_year: lhdnCategory ? currentTaxYear : null,
-            ai_validation_passed:
-              receiptData.is_valid_claim !== undefined
-                ? receiptData.is_valid_claim
-                : null,
-          },
-        ])
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-      savedReceipt = data;
-
-      console.log("✅ Receipt saved:", savedReceipt);
-    } catch (err) {
-      console.error("❌ Supabase insert error:", err);
-      return res
-        .status(500)
-        .json({ success: false, error: "Failed to save receipt" });
-    }
-
-    return res.json({ success: true, data: savedReceipt });
-  } catch (err) {
-    console.error("💥 Top-level OCR handler error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Unexpected server error in OCR" });
+    return serverError(res, "OCR request failed", error);
   }
 }

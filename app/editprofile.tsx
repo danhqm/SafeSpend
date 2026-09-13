@@ -48,7 +48,7 @@ export default function EditProfileScreen() {
 
       const { data: profile, error: profileError } = await supabase
         .from("users")
-        .select("username, mobile, dob, monthy_income, user_id")
+        .select("username, mobile, dob, monthly_income, user_id")
         .eq("user_id", user.id)
         .single();
 
@@ -57,7 +57,7 @@ export default function EditProfileScreen() {
         setMobile(profile.mobile ?? "");
         setDob(profile.dob ?? ""); // if it's a date, Supabase returns "YYYY-MM-DD"
         setMonthlyIncome(
-          profile.monthy_income ? String(profile.monthy_income) : "",
+          profile.monthly_income ? String(profile.monthly_income) : "",
         );
       }
 
@@ -67,16 +67,17 @@ export default function EditProfileScreen() {
     loadProfile();
   }, []);
 
-  // monthly income numeric check
-  if (monthlyIncome && isNaN(Number(monthlyIncome))) {
-    Alert.alert("Error", "Monthly income must be a number");
-    setSaving(false);
-    return;
-  }
-
   const handleSave = async () => {
     if (!username.trim()) {
       Alert.alert("Error", "Username cannot be empty");
+      return;
+    }
+    if (monthlyIncome && (!Number.isFinite(Number(monthlyIncome)) || Number(monthlyIncome) < 0)) {
+      Alert.alert("Error", "Monthly income must be a non-negative number");
+      return;
+    }
+    if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+      Alert.alert("Error", "Date of birth must use YYYY-MM-DD");
       return;
     }
 
@@ -97,7 +98,7 @@ export default function EditProfileScreen() {
       username: username.trim(),
       mobile: mobile.trim() || null,
       dob: dob.trim() || null,
-      monthy_income: monthlyIncome.trim() || null,
+      monthly_income: monthlyIncome.trim() ? Number(monthlyIncome) : null,
     };
 
     const { error: updateError } = await supabase

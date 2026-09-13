@@ -138,12 +138,12 @@ export default function ProfileScreen() {
                 key={item.label}
                 style={styles.menuRow}
                 activeOpacity={0.7}
-                onPress={() => {
+                onPress={async () => {
                   if (item.label === "Edit Profile") {
                     router.push("/editprofile");
                   }
                   if (item.label === "Logout") {
-                    supabase.auth.signOut();
+                    await supabase.auth.signOut();
                     router.replace("/login");
                   }
                   if (item.label === "LHDN Tax Relief") {

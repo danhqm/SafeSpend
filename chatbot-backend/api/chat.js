@@ -1,48 +1,53 @@
-// api/chat.js
 import OpenAI from "openai";
+import { z } from "zod";
+import { prepareResponse, requireUser, serverError } from "../lib/http.js";
 
-let chatHistory = [];
-const MAX_HISTORY = 5;
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const requestSchema = z.object({
+  message: z.string().trim().min(1).max(2_000),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().trim().min(1).max(2_000),
+      }),
+    )
+    .max(10)
+    .default([]),
+});
 
 export default async function handler(req, res) {
-  if (req.method !== "POST")
-    return res.status(405).json({ error: "Method not allowed" });
+  if (!prepareResponse(req, res)) return;
+  if (req.method !== "POST") {
+    return res.status(405).json({ success: false, error: "Method not allowed" });
+  }
 
-  const { message } = req.body;
-  if (!message) return res.status(400).json({ error: "No message provided" });
+  const user = await requireUser(req, res);
+  if (!user) return;
+
+  const parsed = requestSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, error: "Invalid chat request" });
+  }
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-    chatHistory.push({ role: "user", content: message });
-    if (chatHistory.length > MAX_HISTORY * 2)
-      chatHistory = chatHistory.slice(-MAX_HISTORY * 2);
-
-    // FIX 1: Use chat.completions.create
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // FIX 2: Use a standard model name like gpt-4o-mini or gpt-3.5-turbo
+      model: process.env.OPENAI_CHAT_MODEL ?? "gpt-4o-mini",
       messages: [
-        // FIX 3: Change 'input' to 'messages'
         {
           role: "system",
           content:
-            "Your name is Fin, a helpful financial mentor. Keep responses short, clear, and practical. Use MYR (RM) where relevant.",
+            "Your name is Fin, a helpful financial mentor. Keep responses short, clear, practical, and grounded in the user's supplied context. Use MYR (RM) where relevant. Do not claim to be a licensed financial adviser.",
         },
-        ...chatHistory.map((m) => ({ role: m.role, content: m.content })),
+        ...parsed.data.history,
+        { role: "user", content: parsed.data.message },
       ],
     });
 
-    // FIX 4: Correctly parse the standard OpenAI response object
-    const botReply =
-      response.choices[0]?.message?.content ||
-      "Sorry — I couldn’t generate a reply.";
-
-    // Add bot reply to history so it remembers the conversation
-    chatHistory.push({ role: "assistant", content: botReply });
-
-    res.status(200).json({ success: true, text: botReply });
-  } catch (err) {
-    console.error("Chat handler error:", err);
-    res.status(500).json({ success: false, error: err.message });
+    const text = response.choices[0]?.message?.content?.trim();
+    if (!text) throw new Error("OpenAI returned an empty response");
+    return res.status(200).json({ success: true, text });
+  } catch (error) {
+    return serverError(res, "Chat request failed", error);
   }
 }

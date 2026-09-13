@@ -14,12 +14,13 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { authenticatedApiFetch } from "../../utils/api";
+
+type ChatMessage = { role: "user" | "assistant"; text: string };
 
 export default function Chatbot() {
   const tabBarHeight = useBottomTabBarHeight();
-  const [messages, setMessages] = useState<{ role: string; text: string }[]>(
-    [],
-  );
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -27,26 +28,30 @@ export default function Chatbot() {
   const sendMessage = async () => {
     if (!input.trim()) return;
 
-    const userMessage = { role: "user", text: input };
+    const message = input.trim();
+    const userMessage: ChatMessage = { role: "user", text: message };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/chat`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: input }),
-        },
-      );
+      const response = await authenticatedApiFetch("/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          message,
+          history: messages.slice(-10).map(({ role, text }) => ({
+            role,
+            content: text,
+          })),
+        }),
+      });
 
       const data = await response.json();
-      const botMessage = { role: "assistant", text: data.text };
+      if (!response.ok || !data.success) throw new Error(data.error || "Chat failed");
+      const botMessage: ChatMessage = { role: "assistant", text: data.text };
       setMessages((prev) => [...prev, botMessage]);
-    } catch (error) {
-      const errorMessage = {
+    } catch {
+      const errorMessage: ChatMessage = {
         role: "assistant",
         text: "⚠️ Server not reachable.",
       };

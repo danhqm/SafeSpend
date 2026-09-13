@@ -22,37 +22,42 @@ export default function Register() {
   const [mobile, setMobile] = useState("");
   const [dob, setDob] = useState("");
   const [password, setPassword] = useState("");
-  const [monthy_income, setMonthyIncome] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [monthlyIncome, setMonthlyIncome] = useState("");
 
   const handleRegister = async () => {
-    if (!username || !email || !password) {
-      Alert.alert("Error", "Please fill all fields");
+    if (!username.trim() || !email.trim() || !password) {
+      Alert.alert("Error", "Username, email, and password are required");
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match");
+      return;
+    }
+    if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+      Alert.alert("Error", "Date of birth must use YYYY-MM-DD");
+      return;
+    }
+    if (monthlyIncome && (!Number.isFinite(Number(monthlyIncome)) || Number(monthlyIncome) < 0)) {
+      Alert.alert("Error", "Monthly income must be a non-negative number");
       return;
     }
 
     const { data, error: authError } = await supabase.auth.signUp({
-      email,
+      email: email.trim().toLowerCase(),
       password,
+      options: {
+        data: {
+          username: username.trim(),
+          mobile: mobile.trim() || null,
+          dob: dob || null,
+          monthly_income: monthlyIncome ? Number(monthlyIncome) : null,
+        },
+      },
     });
 
     if (authError || !data?.user) {
       Alert.alert("Error", authError?.message || "Failed to create user");
-      return;
-    }
-
-    const { error: profileError } = await supabase.from("users").insert({
-      user_id: data.user.id,
-      username,
-      email,
-      mobile,
-      dob,
-      monthy_income,
-    });
-
-    if (profileError) {
-      Alert.alert("Error", profileError.message);
       return;
     }
 
@@ -109,7 +114,7 @@ export default function Register() {
           <Text style={styles.label}>Date Of Birth</Text>
           <TextInput
             style={styles.input}
-            placeholder="DD/MM/YYYY"
+            placeholder="YYYY-MM-DD"
             placeholderTextColor={"#9DBDB0"}
             value={dob}
             onChangeText={setDob}

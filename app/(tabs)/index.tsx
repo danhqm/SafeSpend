@@ -14,6 +14,7 @@ import {
 import ConfettiCannon from "react-native-confetti-cannon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { setupSmartNotifications } from "../../utils/notifications";
+import { authenticatedApiFetch } from "../../utils/api";
 import { supabase } from "../../utils/supabase";
 
 const PRIMARY = "#00D09E";
@@ -194,14 +195,10 @@ export default function HomeScreen() {
       setAiInsightsLoading(true);
       setAiInsights(null);
 
-      const resp = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL}/api/fin-insights`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        },
-      );
+      const resp = await authenticatedApiFetch("/api/fin-insights", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
 
       const text = await resp.text();
       if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
@@ -232,7 +229,7 @@ export default function HomeScreen() {
 
     const { data: profile, error: profileError } = await supabase
       .from("users")
-      .select("username, monthy_income, avatar_url")
+      .select("username, monthly_income, avatar_url")
       .eq("user_id", user.id)
       .single();
 
@@ -242,7 +239,7 @@ export default function HomeScreen() {
       setUsername(profile.username || "User");
       if (profile.avatar_url) setAvatarUrl(profile.avatar_url);
 
-      const rawIncome = profile.monthy_income;
+      const rawIncome = profile.monthly_income;
       if (typeof rawIncome === "number") incomeNum = rawIncome;
       else incomeNum = parseFloat(rawIncome ?? "0");
 
@@ -398,7 +395,6 @@ export default function HomeScreen() {
     const weeklyIncomeEstimate = incomeNum > 0 ? incomeNum / 4 : 0;
 
     const payload = {
-      userId: user.id,
       currency: "MYR",
       month: today.getMonth() + 1,
       year: today.getFullYear(),
@@ -527,7 +523,7 @@ export default function HomeScreen() {
 
       setInsights(newInsights);
     }
-  }, []);
+  }, [fetchAIInsights]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -585,7 +581,7 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsRow}>
-        <View className="statBox" style={styles.statBox}>
+        <View style={styles.statBox}>
           <View style={styles.statLabelRow}>
             <Ionicons name="calendar-outline" size={16} color="#052224" />
             <Text style={styles.statLabel}>Monthly Income</Text>
