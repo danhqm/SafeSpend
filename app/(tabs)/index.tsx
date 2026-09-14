@@ -71,12 +71,12 @@ function getDateNDaysAgo(n: number): string {
   return localDateString(d);
 }
 
-function getSmartStatus(totalExpense: number, monthlyIncome: number) {
-  if (!monthlyIncome || monthlyIncome <= 0) {
+function getSmartStatus(totalExpense: number, monthlyBudget: number) {
+  if (!monthlyBudget || monthlyBudget <= 0) {
     return {
       icon: "information-circle-outline" as const,
       color: "#052224",
-      text: "Set your monthly income to start tracking your budget.",
+      text: "Set a monthly budget to see whether your spending is on track.",
     };
   }
 
@@ -99,11 +99,11 @@ function getSmartStatus(totalExpense: number, monthlyIncome: number) {
   const avgPerDaySoFar = totalExpense / dayOfMonth;
   const projectedMonthSpend = avgPerDaySoFar * daysInMonth;
   const projectedPercent = Math.round(
-    (projectedMonthSpend / monthlyIncome) * 100,
+    (projectedMonthSpend / monthlyBudget) * 100,
   );
 
-  if (projectedMonthSpend > monthlyIncome * 1.1) {
-    const diff = projectedMonthSpend - monthlyIncome;
+  if (projectedMonthSpend > monthlyBudget * 1.1) {
+    const diff = projectedMonthSpend - monthlyBudget;
     return {
       icon: "warning-outline" as const,
       color: "#DC2626",
@@ -113,7 +113,7 @@ function getSmartStatus(totalExpense: number, monthlyIncome: number) {
     };
   }
 
-  if (projectedMonthSpend > monthlyIncome * 0.95) {
+  if (projectedMonthSpend > monthlyBudget * 0.95) {
     return {
       icon: "alert-circle-outline" as const,
       color: "#D97706",
@@ -153,7 +153,7 @@ export default function HomeScreen() {
 
   const [username, setUsername] = useState<string>("Guest");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [monthlyIncome, setMonthlyIncome] = useState<number>(0);
+  const [monthlyBudget, setMonthlyBudget] = useState<number>(0);
   const [totalExpense, setTotalExpense] = useState<number>(0);
   const [weeklyData, setWeeklyData] = useState<WeeklyPoint[]>(
     Array.from({ length: 7 }, (_, i) => ({
@@ -167,7 +167,7 @@ export default function HomeScreen() {
   const [insights, setInsights] = useState<string[]>([]);
   const [lastReceipt, setLastReceipt] = useState<any | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const status = getSmartStatus(totalExpense, monthlyIncome);
+  const status = getSmartStatus(totalExpense, monthlyBudget);
   const [aiInsights, setAiInsights] = useState<string[] | null>(null);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
   const [weekLabel, setWeekLabel] = useState<string>("");
@@ -200,8 +200,8 @@ export default function HomeScreen() {
   }, [streakCount]);
 
   const progressPercent =
-    monthlyIncome > 0
-      ? Math.min(100, Math.round((totalExpense / monthlyIncome) * 100))
+    monthlyBudget > 0
+      ? Math.min(100, Math.round((totalExpense / monthlyBudget) * 100))
       : 0;
 
   const fetchAIInsights = React.useCallback(async (payload: any) => {
@@ -257,13 +257,27 @@ export default function HomeScreen() {
       if (typeof rawIncome === "number") incomeNum = rawIncome;
       else incomeNum = parseFloat(rawIncome ?? "0");
 
-      if (!Number.isNaN(incomeNum)) setMonthlyIncome(incomeNum);
     }
 
     const today = new Date();
     const todayStr = localDateString(today);
     const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const firstOfMonthStr = localDateString(firstOfMonth);
+
+    const { data: overallBudget, error: budgetError } = await supabase
+      .from("budgets")
+      .select("amount")
+      .eq("user_id", user.id)
+      .eq("month_start", firstOfMonthStr)
+      .eq("category", "ALL")
+      .maybeSingle();
+
+    if (budgetError) {
+      console.log("Home: budget error", budgetError);
+      setMonthlyBudget(0);
+    } else {
+      setMonthlyBudget(Number(overallBudget?.amount) || 0);
+    }
 
     const { data: monthTransactions, error: monthError } = await supabase
       .from("transactions")
@@ -539,13 +553,13 @@ export default function HomeScreen() {
   let suggestion = "Keep tracking your spending to build better habits.";
   if (progressPercent >= 80) {
     suggestion =
-      "You’ve used most of your monthly income. Try slowing down non-essential spending.";
+      "You’ve used most of your monthly budget. Try slowing down non-essential spending.";
   } else if (progressPercent >= 50) {
     suggestion =
-      "You’re halfway through your income this month. Review your receipts to stay on track.";
+      "You’re halfway through your budget this month. Review your transactions to stay on track.";
   } else if (progressPercent > 0 && progressPercent < 50) {
     suggestion =
-      "Nice! Your spending is under 50% of your income. Keep saving consistently.";
+      "Nice! Your spending is under 50% of your budget. Keep tracking consistently.";
   }
 
   return (
@@ -576,13 +590,19 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statsRow}>
-        <View style={styles.statBox}>
+        <TouchableOpacity
+          style={styles.statBox}
+          onPress={() => router.push("/budgets")}
+          accessibilityLabel="Open monthly budget"
+        >
           <View style={styles.statLabelRow}>
             <Ionicons name="calendar-outline" size={16} color="#052224" />
-            <Text style={styles.statLabel}>Monthly Income</Text>
+            <Text style={styles.statLabel}>Monthly Budget</Text>
           </View>
-          <Text style={styles.incomeValue}>RM{monthlyIncome.toFixed(2)}</Text>
-        </View>
+          <Text style={styles.incomeValue}>
+            {monthlyBudget > 0 ? `RM${monthlyBudget.toFixed(2)}` : "Set budget"}
+          </Text>
+        </TouchableOpacity>
 
         <View style={[styles.statBox, styles.statBoxRight]}>
           <View style={styles.statLabelRow}>
@@ -603,8 +623,8 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.statusRow}>
-        <Ionicons name={status.icon} size={16} color="#093030" />
-        <Text style={[styles.statusText, { color: "#093030" }]}>
+        <Ionicons name={status.icon} size={16} color={status.color} />
+        <Text style={[styles.statusText, { color: status.color }]}>
           {status.text}
         </Text>
       </View>

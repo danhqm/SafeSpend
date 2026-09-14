@@ -201,6 +201,7 @@ export default function ReceiptScanner() {
           p_occurred_on: draft.receipt_date,
           p_category: draft.category,
           p_items: draft.items,
+          p_notes: null,
         },
       );
       if (rpcError) throw rpcError;
@@ -233,20 +234,12 @@ export default function ReceiptScanner() {
   };
 
   const renderTransaction = (transaction: LedgerTransaction) => {
-    const canViewReceipt = Boolean(
-      transaction.receipt_id && transaction.receipts?.image_url,
-    );
     const card = (
       <TouchableOpacity
         style={styles.transactionCard}
-        disabled={!canViewReceipt}
         activeOpacity={0.72}
-        accessibilityRole={canViewReceipt ? "button" : undefined}
-        accessibilityLabel={
-          canViewReceipt
-            ? `View stored receipt from ${transactionTitle(transaction)}`
-            : undefined
-        }
+        accessibilityRole="button"
+        accessibilityLabel={`View and edit ${transactionTitle(transaction)}`}
       >
         <View style={styles.transactionIcon}>
           <Ionicons
@@ -265,7 +258,7 @@ export default function ReceiptScanner() {
           </Text>
           <Text style={styles.transactionMeta}>
             {transaction.occurred_on} · {formatCategory(transaction.category)}
-            {canViewReceipt ? " · View receipt" : ""}
+            {transaction.receipt_id ? " · Receipt attached" : ""}
           </Text>
         </View>
         <Text
@@ -276,25 +269,21 @@ export default function ReceiptScanner() {
         >
           {amountPrefix(transaction)}RM{Number(transaction.amount).toFixed(2)}
         </Text>
-        {canViewReceipt ? (
-          <Ionicons name="chevron-forward" size={16} color="#6C817D" />
-        ) : null}
+        <Ionicons name="chevron-forward" size={16} color="#6C817D" />
       </TouchableOpacity>
     );
 
-    return canViewReceipt ? (
+    return (
       <Link
         key={transaction.id}
         href={{
-          pathname: "/receipt/[id]",
-          params: { id: transaction.receipt_id! },
+          pathname: "/transaction/[id]",
+          params: { id: transaction.id },
         }}
         asChild
       >
         {card}
       </Link>
-    ) : (
-      <View key={transaction.id}>{card}</View>
     );
   };
 

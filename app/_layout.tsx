@@ -44,6 +44,22 @@ export default function RootLayout() {
             headerBackTitle: "Transactions",
           }}
         />
+        <Stack.Screen
+          name="transaction/[id]"
+          options={{
+            headerShown: true,
+            title: "Transaction Details",
+            headerBackTitle: "Transactions",
+          }}
+        />
+        <Stack.Screen
+          name="budgets"
+          options={{
+            headerShown: true,
+            title: "Monthly Budget",
+            headerBackTitle: "Home",
+          }}
+        />
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />

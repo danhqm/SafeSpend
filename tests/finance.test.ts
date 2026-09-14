@@ -4,6 +4,9 @@ import {
   expenseEffect,
   formatCategory,
   localDateString,
+  monthDisplayName,
+  monthStartString,
+  shiftMonth,
 } from "../types/finance.ts";
 
 test("expenseEffect counts expenses and reverses refunds", () => {
@@ -19,4 +22,11 @@ test("localDateString uses the supplied local calendar date", () => {
 test("formatCategory produces a readable label", () => {
   assert.equal(formatCategory("FOOD_AND_DRINK"), "Food And Drink");
   assert.equal(formatCategory(null), "Other");
+});
+
+test("month helpers stay on local calendar boundaries", () => {
+  assert.equal(monthStartString(new Date(2026, 0, 31, 23, 30)), "2026-01-01");
+  assert.equal(shiftMonth("2026-01-01", -1), "2025-12-01");
+  assert.equal(shiftMonth("2026-12-01", 1), "2027-01-01");
+  assert.match(monthDisplayName("2026-09-01"), /September 2026/);
 });

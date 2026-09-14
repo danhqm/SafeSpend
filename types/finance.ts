@@ -14,6 +14,12 @@ export const TRANSACTION_CATEGORIES = [
 ] as const;
 
 export type TransactionCategory = (typeof TRANSACTION_CATEGORIES)[number];
+export const EXPENSE_CATEGORIES = TRANSACTION_CATEGORIES.filter(
+  (category) => category !== "SALARY" && category !== "SAVINGS",
+) as Exclude<TransactionCategory, "SALARY" | "SAVINGS">[];
+
+export const BUDGET_CATEGORIES = ["ALL", ...EXPENSE_CATEGORIES] as const;
+export type BudgetCategory = (typeof BUDGET_CATEGORIES)[number];
 export type TransactionType = "expense" | "income" | "refund";
 export type TransactionStatus = "draft" | "posted";
 export type TransactionSource = "manual" | "receipt";
@@ -50,6 +56,15 @@ export type LedgerTransaction = {
   receipts?: Pick<StoredReceipt, "items" | "image_url"> | null;
 };
 
+export type MonthlyBudget = {
+  id: string;
+  user_id: string;
+  month_start: string;
+  category: BudgetCategory;
+  amount: number | string;
+  currency: "MYR";
+};
+
 export function formatCategory(category?: string | null) {
   if (!category) return "Other";
   return category
@@ -63,6 +78,23 @@ export function localDateString(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+export function monthStartString(date = new Date()) {
+  return localDateString(new Date(date.getFullYear(), date.getMonth(), 1));
+}
+
+export function shiftMonth(monthStart: string, offset: number) {
+  const [year, month] = monthStart.split("-").map(Number);
+  return monthStartString(new Date(year, month - 1 + offset, 1));
+}
+
+export function monthDisplayName(monthStart: string) {
+  const [year, month] = monthStart.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString("en-MY", {
+    month: "long",
+    year: "numeric",
+  });
 }
 
 export function expenseEffect(
