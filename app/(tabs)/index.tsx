@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import ConfettiCannon from "react-native-confetti-cannon";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { expenseEffect, localDateString } from "../../types/finance";
 import { setupSmartNotifications } from "../../utils/notifications";
 import { authenticatedApiFetch } from "../../utils/api";
 import { supabase } from "../../utils/supabase";
@@ -26,6 +27,9 @@ const CATEGORY_COLORS: Record<string, string> = {
   SHOPPING: "#3B82F6",
   BILLS: "#8B5CF6",
   ENTERTAINMENT: "#EC4899",
+  HEALTHCARE: "#14B8A6",
+  EDUCATION: "#6366F1",
+  HOUSING: "#A16207",
   OTHER: "#9CA3AF",
 };
 
@@ -64,7 +68,7 @@ function computeStreak(dates: string[]): number {
 function getDateNDaysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().split("T")[0];
+  return localDateString(d);
 }
 
 function getSmartStatus(totalExpense: number, monthlyIncome: number) {
@@ -257,52 +261,52 @@ export default function HomeScreen() {
     }
 
     const today = new Date();
-    const todayStr = today.toISOString().split("T")[0];
+    const todayStr = localDateString(today);
     const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const firstOfMonthStr = localDateString(firstOfMonth);
 
-    // 1. BULLETPROOF MONTH RECEIPTS
-    const { data: monthReceipts, error: monthError } = await supabase
-      .from("receipts")
-      // We MUST select lhdn_category here so the app knows what it is!
-      .select("total_amount, created_at, lhdn_category")
+    const { data: monthTransactions, error: monthError } = await supabase
+      .from("transactions")
+      .select("amount, transaction_type, receipt_id")
       .eq("user_id", user.id)
-      .gte("created_at", firstOfMonth.toISOString())
-      .lte("created_at", today.toISOString())
-      .is("lhdn_category", null);
+      .eq("status", "posted")
+      .in("transaction_type", ["expense", "refund"])
+      .gte("occurred_on", firstOfMonthStr)
+      .lte("occurred_on", todayStr);
 
     if (monthError) {
-      console.log("Home: month receipts error", monthError);
-    } else if (monthReceipts) {
-      const sum = monthReceipts.reduce((acc: number, r: any) => {
-        // JS Safety Net: Skip if it's an LHDN receipt
-        if (r.lhdn_category) return acc;
-        return acc + Number(r.total_amount || 0);
+      console.log("Home: month transactions error", monthError);
+    } else if (monthTransactions) {
+      const sum = monthTransactions.reduce((acc: number, row: any) => {
+        return acc + expenseEffect(row.transaction_type, row.amount);
       }, 0);
 
-      setTotalExpense(sum);
-      setMonthReceiptCount(monthReceipts.length);
+      setTotalExpense(Math.max(0, sum));
+      setMonthReceiptCount(
+        monthTransactions.filter((row: any) => Boolean(row.receipt_id)).length,
+      );
     }
 
-    // 2. BULLETPROOF LAST RECEIPT
     const { data: lastRows, error: lastError } = await supabase
-      .from("receipts")
+      .from("transactions")
       .select(
-        "id, user_id, merchant_name, total_amount, receipt_date, category, created_at, lhdn_category",
+        "id, merchant_name, amount, occurred_on, category, created_at, receipt_id",
       )
       .eq("user_id", user.id)
-      .is("lhdn_category", null)
+      .eq("status", "posted")
+      .not("receipt_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(1);
 
     if (lastError) {
       console.log("Home: last receipt error", lastError);
     } else if (lastRows && lastRows.length > 0) {
-      // JS Safety Net
-      if (!lastRows[0].lhdn_category) {
-        setLastReceipt(lastRows[0]);
-      } else {
-        setLastReceipt(null);
-      }
+      const latest = lastRows[0];
+      setLastReceipt({
+        ...latest,
+        total_amount: latest.amount,
+        receipt_date: latest.occurred_on,
+      });
     } else {
       setLastReceipt(null);
     }
@@ -330,35 +334,42 @@ export default function HomeScreen() {
       { label: "Sun", total: 0, categories: {} },
     ];
 
-    // 3. BULLETPROOF WEEKLY CHART
-    const { data: weekReceipts, error: weekError } = await supabase
-      .from("receipts")
-      .select("total_amount, created_at, category, lhdn_category")
+    const weekStartStr = localDateString(startOfWeek);
+    const weekEndStr = localDateString(endOfWeek);
+
+    const { data: weekTransactions, error: weekError } = await supabase
+      .from("transactions")
+      .select("amount, occurred_on, category, transaction_type")
       .eq("user_id", user.id)
-      .gte("created_at", startOfWeek.toISOString())
-      .lt("created_at", endOfWeek.toISOString())
-      .is("lhdn_category", null);
+      .eq("status", "posted")
+      .in("transaction_type", ["expense", "refund"])
+      .gte("occurred_on", weekStartStr)
+      .lt("occurred_on", weekEndStr);
 
     if (weekError) {
-      console.log("Home: week receipts error", weekError);
+      console.log("Home: week transactions error", weekError);
     } else {
-      (weekReceipts || []).forEach((row: any) => {
-        // JS Safety Net: Throw it out if it has an LHDN category!
-        if (row.lhdn_category) return;
-
-        const utcDate = new Date(row.created_at);
-        const localDate = new Date(
-          utcDate.getTime() + utcDate.getTimezoneOffset() * -60000,
-        );
-        const js = localDate.getDay();
+      (weekTransactions || []).forEach((row: any) => {
+        const transactionDate = new Date(`${row.occurred_on}T00:00:00`);
+        const js = transactionDate.getDay();
         const idx = js === 0 ? 6 : js - 1;
-        const amount = Number(row.total_amount || 0);
+        const amount = expenseEffect(row.transaction_type, row.amount);
         const rawCat = (row.category || "OTHER") as string;
         const cat = CATEGORY_COLORS[rawCat] ? rawCat : "OTHER";
 
         points[idx].total += amount;
         points[idx].categories[cat] =
           (points[idx].categories[cat] || 0) + amount;
+      });
+
+      points.forEach((point) => {
+        point.categories = Object.fromEntries(
+          Object.entries(point.categories).filter(([, amount]) => amount > 0),
+        );
+        point.total = Object.values(point.categories).reduce(
+          (sum, amount) => sum + amount,
+          0,
+        );
       });
 
       setWeeklyData(points);
@@ -380,9 +391,6 @@ export default function HomeScreen() {
         category,
         amount: Number(amount.toFixed(2)),
       }));
-
-    const weekStartStr = startOfWeek.toISOString().split("T")[0];
-    const weekEndStr = endOfWeek.toISOString().split("T")[0];
 
     const { data: weekGoals, error: goalsErr } = await supabase
       .from("user_goals")
@@ -428,18 +436,19 @@ export default function HomeScreen() {
 
     const fourteenDaysAgoStr = getDateNDaysAgo(13);
 
-    const { data: insightReceipts, error: insightError } = await supabase
-      .from("receipts")
-      .select("total_amount, category, receipt_date, lhdn_category")
+    const { data: insightTransactions, error: insightError } = await supabase
+      .from("transactions")
+      .select("amount, category, occurred_on, transaction_type")
       .eq("user_id", user.id)
-      .gte("created_at", fourteenDaysAgoStr)
-      .lte("created_at", todayStr)
-      .is("lhdn_category", null);
+      .eq("status", "posted")
+      .in("transaction_type", ["expense", "refund"])
+      .gte("occurred_on", fourteenDaysAgoStr)
+      .lte("occurred_on", todayStr);
 
     if (insightError) {
-      console.log("Home: insight receipts error", insightError);
+      console.log("Home: insight transactions error", insightError);
       setInsights([]);
-    } else if (insightReceipts) {
+    } else if (insightTransactions) {
       const now = new Date();
       const startOfThisWeek = new Date(now);
       startOfThisWeek.setDate(now.getDate() - now.getDay());
@@ -453,21 +462,9 @@ export default function HomeScreen() {
       let thisWeekTotal = 0;
       let lastWeekTotal = 0;
 
-      (insightReceipts || []).forEach(async (row: any) => {
-        // JS Safety Net: Ignore LHDN
-        if (row.lhdn_category) return;
-
-        const categoryTotals: Record<string, number> = {};
-
-        for (const cat in thisWeekByCat) {
-          categoryTotals[cat] = (categoryTotals[cat] || 0) + thisWeekByCat[cat];
-        }
-        for (const cat in lastWeekByCat) {
-          categoryTotals[cat] = (categoryTotals[cat] || 0) + lastWeekByCat[cat];
-        }
-
-        const date = new Date(row.receipt_date);
-        const amount = Number(row.total_amount) || 0;
+      (insightTransactions || []).forEach((row: any) => {
+        const date = new Date(`${row.occurred_on}T00:00:00`);
+        const amount = expenseEffect(row.transaction_type, row.amount);
         const cat = (row.category || "OTHER") as string;
 
         if (date >= startOfThisWeek) {
@@ -647,7 +644,7 @@ export default function HomeScreen() {
 
           <View style={styles.chartCard}>
             <View style={styles.chartHeaderRow}>
-              <Text style={styles.chartTitle}>Income &amp; Expenses</Text>
+              <Text style={styles.chartTitle}>Weekly Expenses</Text>
               <View style={styles.chartIconBubble}>
                 <Ionicons name="calendar-outline" size={18} color="#093030" />
               </View>

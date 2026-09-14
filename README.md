@@ -2,6 +2,15 @@
 
 SafeSpend is an Expo/React Native personal-finance app for tracking receipts, weekly spending, goals, learning progress, and Malaysian LHDN tax-relief claims. A small Vercel Functions backend authenticates requests, performs receipt OCR with OpenAI, and generates financial insights. Supabase provides Auth, Postgres, and private image storage.
 
+## Financial data model
+
+- `transactions` is the canonical ledger used by the dashboard and reports.
+- `receipts` stores OCR evidence and LHDN metadata; a receipt-backed transaction links to it with `receipt_id`.
+- Manual expenses, income, and refunds are posted directly to the ledger.
+- Normal receipt scans are saved as drafts. They do not affect totals until the user checks the merchant, date, amount, and category and confirms the draft.
+- LHDN scans remain immediately posted so they continue to count as real expenses while also contributing to tax-relief estimates.
+- Reports use `occurred_on`, the financial event date, rather than the upload timestamp.
+
 ## Security model
 
 - The Expo client uses only a Supabase publishable key. Never put a secret or service-role key in `app.config.js`, an `EXPO_PUBLIC_*` variable, or an Expo build.
@@ -25,7 +34,7 @@ Do not commit either populated environment file.
 
 ## Database changes
 
-The `supabase/migrations` directory is the source of truth for database changes. The hosted project currently includes the hardening and API-quota migrations in this directory.
+The `supabase/migrations` directory is the source of truth for database changes. The hosted project includes the hardening, API-quota, and transaction-ledger migrations in this directory.
 
 Before applying future migrations:
 
@@ -41,7 +50,8 @@ For a single-user installation, confirm the owner's Auth UUID and set the backen
 
 ```bash
 npm run lint
-npx tsc --noEmit
+npm run typecheck
+npm test
 cd chatbot-backend
 npm run check
 ```

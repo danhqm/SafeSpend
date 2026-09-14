@@ -14,6 +14,9 @@ const categories = [
   "SHOPPING",
   "BILLS",
   "ENTERTAINMENT",
+  "HEALTHCARE",
+  "EDUCATION",
+  "HOUSING",
   "OTHER",
 ];
 const requestSchema = z.object({
@@ -116,7 +119,7 @@ export default async function handler(req, res) {
         : "OTHER";
     const receiptYear = Number(receipt.receipt_date.slice(0, 4));
 
-    const { data, error: insertError } = await supabaseAdmin
+    const { data: savedReceipt, error: insertError } = await supabaseAdmin
       .from("receipts")
       .insert({
         user_id: user.id,
@@ -135,7 +138,33 @@ export default async function handler(req, res) {
       .single();
     if (insertError) throw insertError;
 
-    return res.status(200).json({ success: true, data });
+    const { data: transaction, error: transactionError } = await supabaseAdmin
+      .from("transactions")
+      .select("id, status")
+      .eq("receipt_id", savedReceipt.id)
+      .eq("user_id", user.id)
+      .single();
+
+    if (transactionError) {
+      const { error: rollbackError } = await supabaseAdmin
+        .from("receipts")
+        .delete()
+        .eq("id", savedReceipt.id)
+        .eq("user_id", user.id);
+      if (rollbackError) {
+        console.error("Failed to roll back receipt without a ledger row", rollbackError);
+      }
+      throw transactionError;
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...savedReceipt,
+        transaction_id: transaction.id,
+        status: transaction.status,
+      },
+    });
   } catch (error) {
     if (objectPath) {
       const { error: cleanupError } = await supabaseAdmin.storage

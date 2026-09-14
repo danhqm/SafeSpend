@@ -32,6 +32,10 @@ export default function RootLayout() {
         <Stack.Screen name="login" />
         <Stack.Screen name="register" />
         <Stack.Screen name="editprofile" />
+        <Stack.Screen
+          name="add-transaction"
+          options={{ presentation: "modal", animation: "slide_from_bottom" }}
+        />
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />
