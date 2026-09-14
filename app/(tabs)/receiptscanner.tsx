@@ -9,7 +9,7 @@ import { authenticatedApiFetch } from "@/utils/api";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
 import React, { useCallback, useState } from "react";
 import {
@@ -34,6 +34,7 @@ type ReceiptDraft = {
   receipt_date: string;
   category: TransactionCategory;
   items: ReceiptItem[];
+  image_url: string | null;
   status: "draft";
 };
 
@@ -74,7 +75,7 @@ export default function ReceiptScanner() {
     const { data, error: queryError } = await supabase
       .from("transactions")
       .select(
-        "id, user_id, receipt_id, transaction_type, amount, currency, occurred_on, merchant_name, category, notes, source, status, created_at, receipts(items)",
+        "id, user_id, receipt_id, transaction_type, amount, currency, occurred_on, merchant_name, category, notes, source, status, created_at, receipts(items, image_url)",
       )
       .eq("user_id", userId)
       .order("occurred_on", { ascending: false })
@@ -102,6 +103,7 @@ export default function ReceiptScanner() {
           receipt_date: pending.occurred_on,
           category: pending.category,
           items: pending.receipts?.items ?? [],
+          image_url: pending.receipts?.image_url ?? null,
           status: "draft",
         });
       }
@@ -230,33 +232,71 @@ export default function ReceiptScanner() {
     }
   };
 
-  const renderTransaction = (transaction: LedgerTransaction) => (
-    <View key={transaction.id} style={styles.transactionCard}>
-      <View style={styles.transactionIcon}>
-        <Ionicons
-          name={transaction.source === "receipt" ? "receipt-outline" : "create-outline"}
-          size={18}
-          color="#093030"
-        />
-      </View>
-      <View style={styles.transactionDetails}>
-        <Text style={styles.transactionMerchant} numberOfLines={1}>
-          {transactionTitle(transaction)}
-        </Text>
-        <Text style={styles.transactionMeta}>
-          {transaction.occurred_on} · {formatCategory(transaction.category)}
-        </Text>
-      </View>
-      <Text
-        style={[
-          styles.transactionAmount,
-          transaction.transaction_type !== "expense" && styles.positiveAmount,
-        ]}
+  const renderTransaction = (transaction: LedgerTransaction) => {
+    const canViewReceipt = Boolean(
+      transaction.receipt_id && transaction.receipts?.image_url,
+    );
+    const card = (
+      <TouchableOpacity
+        style={styles.transactionCard}
+        disabled={!canViewReceipt}
+        activeOpacity={0.72}
+        accessibilityRole={canViewReceipt ? "button" : undefined}
+        accessibilityLabel={
+          canViewReceipt
+            ? `View stored receipt from ${transactionTitle(transaction)}`
+            : undefined
+        }
       >
-        {amountPrefix(transaction)}RM{Number(transaction.amount).toFixed(2)}
-      </Text>
-    </View>
-  );
+        <View style={styles.transactionIcon}>
+          <Ionicons
+            name={
+              transaction.source === "receipt"
+                ? "receipt-outline"
+                : "create-outline"
+            }
+            size={18}
+            color="#093030"
+          />
+        </View>
+        <View style={styles.transactionDetails}>
+          <Text style={styles.transactionMerchant} numberOfLines={1}>
+            {transactionTitle(transaction)}
+          </Text>
+          <Text style={styles.transactionMeta}>
+            {transaction.occurred_on} · {formatCategory(transaction.category)}
+            {canViewReceipt ? " · View receipt" : ""}
+          </Text>
+        </View>
+        <Text
+          style={[
+            styles.transactionAmount,
+            transaction.transaction_type !== "expense" && styles.positiveAmount,
+          ]}
+        >
+          {amountPrefix(transaction)}RM{Number(transaction.amount).toFixed(2)}
+        </Text>
+        {canViewReceipt ? (
+          <Ionicons name="chevron-forward" size={16} color="#6C817D" />
+        ) : null}
+      </TouchableOpacity>
+    );
+
+    return canViewReceipt ? (
+      <Link
+        key={transaction.id}
+        href={{
+          pathname: "/receipt/[id]",
+          params: { id: transaction.receipt_id! },
+        }}
+        asChild
+      >
+        {card}
+      </Link>
+    ) : (
+      <View key={transaction.id}>{card}</View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -312,6 +352,23 @@ export default function ReceiptScanner() {
               </View>
               <Ionicons name="shield-checkmark-outline" size={25} color="#087D65" />
             </View>
+
+            {draft.image_url ? (
+              <Link
+                href={{ pathname: "/receipt/[id]", params: { id: draft.id } }}
+                asChild
+              >
+                <TouchableOpacity
+                  style={styles.viewOriginalButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="View the original receipt image"
+                >
+                  <Ionicons name="image-outline" size={18} color="#087D65" />
+                  <Text style={styles.viewOriginalText}>View original receipt</Text>
+                  <Ionicons name="chevron-forward" size={16} color="#087D65" />
+                </TouchableOpacity>
+              </Link>
+            ) : null}
 
             <Text style={styles.fieldLabel}>Merchant</Text>
             <TextInput
@@ -506,6 +563,16 @@ const styles = StyleSheet.create({
   },
   reviewEyebrow: { color: "#087D65", fontSize: 10, fontWeight: "800", letterSpacing: 0.8 },
   reviewTitle: { color: "#093030", fontSize: 17, fontWeight: "800", marginTop: 2 },
+  viewOriginalButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    backgroundColor: "#DDF4EC",
+  },
+  viewOriginalText: { flex: 1, color: "#087D65", fontSize: 12, fontWeight: "800" },
   fieldLabel: {
     color: "#31504D",
     fontSize: 11,

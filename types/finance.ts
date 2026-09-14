@@ -23,6 +23,16 @@ export type ReceiptItem = {
   price: number;
 };
 
+export type StoredReceipt = {
+  id: string;
+  merchant_name: string | null;
+  total_amount: number | string | null;
+  receipt_date: string | null;
+  category: string | null;
+  items: ReceiptItem[] | null;
+  image_url: string | null;
+};
+
 export type LedgerTransaction = {
   id: string;
   user_id: string;
@@ -37,7 +47,7 @@ export type LedgerTransaction = {
   source: TransactionSource;
   status: TransactionStatus;
   created_at: string;
-  receipts?: { items?: ReceiptItem[] | null } | null;
+  receipts?: Pick<StoredReceipt, "items" | "image_url"> | null;
 };
 
 export function formatCategory(category?: string | null) {

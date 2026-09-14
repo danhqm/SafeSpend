@@ -36,6 +36,14 @@ export default function RootLayout() {
           name="add-transaction"
           options={{ presentation: "modal", animation: "slide_from_bottom" }}
         />
+        <Stack.Screen
+          name="receipt/[id]"
+          options={{
+            headerShown: true,
+            title: "Stored Receipt",
+            headerBackTitle: "Transactions",
+          }}
+        />
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />

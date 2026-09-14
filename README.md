@@ -8,6 +8,7 @@ SafeSpend is an Expo/React Native personal-finance app for tracking receipts, we
 - `receipts` stores OCR evidence and LHDN metadata; a receipt-backed transaction links to it with `receipt_id`.
 - Manual expenses, income, and refunds are posted directly to the ledger.
 - Normal receipt scans are saved as drafts. They do not affect totals until the user checks the merchant, date, amount, and category and confirms the draft.
+- Receipt-backed transactions open the original private image with a short-lived signed URL; permanent storage paths are never exposed as public links.
 - LHDN scans remain immediately posted so they continue to count as real expenses while also contributing to tax-relief estimates.
 - Reports use `occurred_on`, the financial event date, rather than the upload timestamp.
 
