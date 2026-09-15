@@ -1,11 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useBottomTabBarHeight } from "expo-router/js-tabs";
 import { StatusBar } from "expo-status-bar";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Image,
+  Keyboard,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,11 +18,29 @@ import { authenticatedApiFetch } from "../../utils/api";
 type ChatMessage = { role: "user" | "assistant"; text: string };
 
 export default function Chatbot() {
-  const tabBarHeight = useBottomTabBarHeight();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    const showEvent =
+      process.env.EXPO_OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      process.env.EXPO_OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, () =>
+      setKeyboardVisible(true),
+    );
+    const hideSubscription = Keyboard.addListener(hideEvent, () =>
+      setKeyboardVisible(false),
+    );
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -73,9 +90,9 @@ export default function Chatbot() {
         <Text style={styles.headerTitle}>Fin</Text>
       </View>
       <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: "#fff" }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? tabBarHeight : 0}
+        style={styles.keyboardAvoiding}
+        behavior={process.env.EXPO_OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={0}
       >
         <View style={styles.innerContainer}>
           <View style={styles.cardHeader}>
@@ -111,7 +128,12 @@ export default function Chatbot() {
             {loading && <Text style={styles.loadingText}>🤖 Thinking...</Text>}
           </ScrollView>
 
-          <View style={styles.inputContainer}>
+          <View
+            style={[
+              styles.inputContainer,
+              keyboardVisible && styles.inputContainerKeyboard,
+            ]}
+          >
             <TextInput
               style={styles.input}
               placeholder="Type a message..."
@@ -156,6 +178,7 @@ const styles = StyleSheet.create({
   },
   keyboardAvoiding: {
     flex: 1,
+    backgroundColor: "#fff",
   },
 
   innerContainer: {
@@ -222,6 +245,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 12,
     paddingBottom: 40,
+  },
+  inputContainerKeyboard: {
+    paddingBottom: 8,
   },
   input: {
     flex: 1,
