@@ -1,12 +1,18 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router/react-navigation";
-import { useRouter } from "expo-router";
-import { useCallback, useState } from "react";
 import {
-  Image,
-  KeyboardAvoidingView,
+  computeLearningStreak,
+  localLearningDate,
+  type LearningModuleType,
+  type LearningPath,
+} from "@/types/learning";
+import { supabase } from "@/utils/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router/react-navigation";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
   Modal,
-  Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,45 +20,19 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "../../utils/supabase";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const PRIMARY = "#00D09E";
-const CARD_BG = "#E9FFF4";
+const INK = "#093030";
 
-function computeStreak(dates: string[]): number {
-  if (!dates.length) return 0;
+type ModuleSummary = {
+  id: string;
+  module_type: LearningModuleType;
+  sort_order: number;
+};
 
-  const sorted = [...dates].sort(
-    (a, b) => new Date(b).getTime() - new Date(a).getTime(),
-  );
-
-  let streak = 1;
-
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = new Date(sorted[i - 1]);
-    const curr = new Date(sorted[i]);
-
-    const diffDays = (prev.getTime() - curr.getTime()) / (1000 * 60 * 60 * 24);
-
-    if (diffDays === 1) {
-      streak++;
-    } else {
-      break;
-    }
-  }
-
-  return streak;
-}
-
-type LearningPath = {
-  id: string; // Assuming Supabase UUIDs. Change to 'number' if you used bigints.
-  title: string;
-  description: string;
-  cover_image_url: string | null;
-  totalModules: number;
-  completedModules: number;
-  isFullyComplete: boolean;
+type LearningPathRow = LearningPath & {
+  learning_modules: ModuleSummary[];
 };
 
 type Goal = {
@@ -65,810 +45,570 @@ type Goal = {
   created_at: string;
 };
 
-function getMonday(d: Date) {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = (day === 0 ? -6 : 1) - day;
-  date.setDate(date.getDate() + diff);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
+type PathTheme = {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  color: string;
+  background: string;
+};
 
-function toISODateOnly(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${da}`;
+const PATH_THEMES: Record<string, PathTheme> = {
+  "money-basics": {
+    icon: "pie-chart-outline",
+    color: "#126B5A",
+    background: "#DDF5ED",
+  },
+  "emergency-savings": {
+    icon: "shield-checkmark-outline",
+    color: "#3669A8",
+    background: "#E1EDFA",
+  },
+  "debt-bnpl": {
+    icon: "card-outline",
+    color: "#9A5B13",
+    background: "#FFF0D9",
+  },
+};
+
+function getMonday(date: Date): Date {
+  const result = new Date(date);
+  const day = result.getDay();
+  const difference = (day === 0 ? -6 : 1) - day;
+  result.setDate(result.getDate() + difference);
+  result.setHours(0, 0, 0, 0);
+  return result;
 }
 
 export default function EduFinanceScreen() {
-  const [learningPaths, setLearningPaths] = useState<LearningPath[]>([]);
-  const [streakCount, setStreakCount] = useState(0);
+  const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { openGoal } = useLocalSearchParams<{ openGoal?: string }>();
+  const weekStart = useMemo(() => localLearningDate(getMonday(new Date())), []);
+  const [paths, setPaths] = useState<LearningPathRow[]>([]);
+  const [completedModuleIds, setCompletedModuleIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [streakCount, setStreakCount] = useState(0);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
   const [newGoalTitle, setNewGoalTitle] = useState("");
   const [newGoalNotes, setNewGoalNotes] = useState("");
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [savingGoal, setSavingGoal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const PATH_IMAGES: Record<string, any> = {
-    "The 50/30/20 Rule": require("../../assets/images/credit card.png"),
-    "The Emergency Fund": require("../../assets/images/safe box.png"),
-    "Tracking Every Ringgit": require("../../assets/images/wallet with cash.png"),
-  };
+  const loadLearning = useCallback(async () => {
+    setError(null);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (authError || !userId) {
+        throw authError ?? new Error("Authentication required");
+      }
 
-  const [selectedWeekStart] = useState<string>(
-    toISODateOnly(getMonday(new Date())),
+      const streakCutoff = new Date();
+      streakCutoff.setDate(streakCutoff.getDate() - 90);
+
+      const [pathResult, progressResult, streakResult, goalResult] =
+        await Promise.all([
+          supabase
+            .from("learning_paths")
+            .select(
+              "id, slug, title, description, outcome, estimated_minutes, reviewed_at, sort_order, learning_modules(id, module_type, sort_order)",
+            )
+            .eq("is_published", true)
+            .lte("publish_date", new Date().toISOString())
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("user_path_progress")
+            .select("module_id")
+            .eq("user_id", userId),
+          supabase
+            .from("user_streaks")
+            .select("date")
+            .eq("user_id", userId)
+            .gte("date", localLearningDate(streakCutoff))
+            .order("date", { ascending: false }),
+          supabase
+            .from("user_goals")
+            .select(
+              "id, user_id, title, notes, week_start, completed, created_at",
+            )
+            .eq("user_id", userId)
+            .eq("week_start", weekStart)
+            .order("created_at", { ascending: false }),
+        ]);
+
+      if (pathResult.error) throw pathResult.error;
+      if (progressResult.error) throw progressResult.error;
+      if (streakResult.error) throw streakResult.error;
+      if (goalResult.error) throw goalResult.error;
+
+      const nextPaths = (pathResult.data || []).map((path) => ({
+        ...path,
+        learning_modules: [...(path.learning_modules || [])].sort(
+          (left, right) => left.sort_order - right.sort_order,
+        ),
+      })) as unknown as LearningPathRow[];
+
+      setPaths(nextPaths);
+      setCompletedModuleIds(
+        new Set((progressResult.data || []).map((row) => row.module_id)),
+      );
+      setStreakCount(
+        computeLearningStreak((streakResult.data || []).map((row) => row.date)),
+      );
+      setGoals((goalResult.data || []) as Goal[]);
+    } catch (loadError) {
+      console.error("Learning dashboard load failed", loadError);
+      setError("Could not load Money Skills. Pull down to try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [weekStart]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadLearning();
+    }, [loadLearning]),
   );
 
-  const loadGoals = useCallback(async () => {
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData?.user;
-    if (!user) return;
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadLearning();
+    setRefreshing(false);
+  }, [loadLearning]);
 
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    const { data, error } = await supabase
-      .from("user_goals")
-      .select("*")
-      .eq("user_id", user.id)
-      .gte("week_start", toISODateOnly(monthStart))
-      .lt("week_start", toISODateOnly(monthEnd))
-      .order("week_start", { ascending: false })
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.log("loadGoals error:", error.message);
-      return;
-    }
-
-    setGoals((data as Goal[]) || []);
-  }, []);
+  const closeGoalModal = useCallback(() => {
+    setGoalModalVisible(false);
+    if (openGoal === "1") router.setParams({ openGoal: "0" });
+  }, [openGoal, router]);
 
   const addGoal = useCallback(async () => {
     const title = newGoalTitle.trim();
     const notes = newGoalNotes.trim();
-    if (!title) return;
-
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData?.user;
-    if (!user) return;
-
-    const payload = {
-      user_id: user.id,
-      title,
-      notes: notes ? notes : null,
-      week_start: selectedWeekStart,
-      completed: false,
-    };
-
-    const { data, error } = await supabase
-      .from("user_goals")
-      .insert(payload)
-      .select("*")
-      .single();
-
-    if (error) {
-      console.log("addGoal error:", error.message);
+    if (!title || title.length > 100 || notes.length > 500) {
+      setError("Enter a goal title under 100 characters.");
       return;
     }
 
-    setGoals((prev) => [data as Goal, ...prev]);
-    setNewGoalTitle("");
-    setNewGoalNotes("");
-    setGoalModalVisible(false);
-  }, [newGoalTitle, newGoalNotes, selectedWeekStart]);
+    setSavingGoal(true);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (authError || !userId) {
+        throw authError ?? new Error("Authentication required");
+      }
+
+      const { data, error: insertError } = await supabase
+        .from("user_goals")
+        .insert({
+          user_id: userId,
+          title,
+          notes: notes || null,
+          week_start: weekStart,
+          completed: false,
+        })
+        .select(
+          "id, user_id, title, notes, week_start, completed, created_at",
+        )
+        .single();
+      if (insertError) throw insertError;
+
+      setGoals((current) => [data as Goal, ...current]);
+      setNewGoalTitle("");
+      setNewGoalNotes("");
+      closeGoalModal();
+    } catch (saveError) {
+      console.error("Learning goal save failed", saveError);
+      setError("Could not save that goal. Please try again.");
+    } finally {
+      setSavingGoal(false);
+    }
+  }, [closeGoalModal, newGoalNotes, newGoalTitle, weekStart]);
 
   const toggleGoal = useCallback(async (goal: Goal) => {
     const nextCompleted = !goal.completed;
-
-    setGoals((prev) =>
-      prev.map((g) =>
-        g.id === goal.id ? { ...g, completed: nextCompleted } : g,
+    setGoals((current) =>
+      current.map((row) =>
+        row.id === goal.id ? { ...row, completed: nextCompleted } : row,
       ),
     );
 
-    const { error } = await supabase
+    const { error: updateError } = await supabase
       .from("user_goals")
       .update({ completed: nextCompleted })
       .eq("id", goal.id);
-
-    if (error) {
-      console.log("toggleGoal error:", error.message);
-      setGoals((prev) =>
-        prev.map((g) =>
-          g.id === goal.id ? { ...g, completed: goal.completed } : g,
+    if (updateError) {
+      console.error("Learning goal update failed", updateError);
+      setGoals((current) =>
+        current.map((row) =>
+          row.id === goal.id ? { ...row, completed: goal.completed } : row,
         ),
       );
+      setError("Could not update that goal.");
     }
   }, []);
 
-  const loadStreak = useCallback(async () => {
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-    const user = authData?.user;
-
-    if (authError || !user) {
-      console.log("No user for streak:", authError);
-      setStreakCount(0);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("user_streaks")
-      .select("date")
-      .eq("user_id", user.id)
-      .order("date", { ascending: false });
-
-    if (error) {
-      console.log("Error loading streaks:", error);
-      setStreakCount(0);
-      return;
-    }
-
-    const dates = (data || []).map((row) => row.date as string);
-    const streak = computeStreak(dates);
-    setStreakCount(streak);
-  }, []);
-
-  const loadLearningPaths = useCallback(async () => {
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData?.user;
-    if (!user) return;
-
-    const today = new Date().toISOString();
-
-    const { data: pathsData, error: pathsError } = await supabase
-      .from("learning_paths")
-      .select(
-        `
-        id, 
-        title, 
-        description, 
-        cover_image_url,
-        learning_modules ( id )
-      `,
-      )
-      .eq("is_published", true)
-      .lte("publish_date", today)
-      .order("publish_date", { ascending: false });
-
-    if (pathsError) {
-      console.log("Error fetching paths:", pathsError);
-      return;
-    }
-
-    const { data: progressData } = await supabase
-      .from("user_path_progress")
-      .select("module_id")
-      .eq("user_id", user.id);
-
-    const completedModuleIds = new Set(
-      (progressData || []).map((p) => p.module_id),
-    );
-
-    const enrichedPaths = (pathsData || []).map((path) => {
-      const totalModules = path.learning_modules.length;
-      const completedModules = path.learning_modules.filter((m) =>
-        completedModuleIds.has(m.id),
-      ).length;
-
-      return {
-        ...path,
-        totalModules,
-        completedModules,
-        isFullyComplete: totalModules > 0 && totalModules === completedModules,
-      };
-    });
-
-    setLearningPaths(enrichedPaths);
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadGoals();
-      loadStreak();
-      loadLearningPaths(); // We will add this function next
-    }, [loadGoals, loadStreak, loadLearningPaths]),
+  const totalModules = paths.reduce(
+    (sum, path) => sum + path.learning_modules.length,
+    0,
+  );
+  const completedModules = paths.reduce(
+    (sum, path) =>
+      sum +
+      path.learning_modules.filter((module) => completedModuleIds.has(module.id))
+        .length,
+    0,
+  );
+  const nextPath = paths.find((path) =>
+    path.learning_modules.some((module) => !completedModuleIds.has(module.id)),
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>EduFinance</Text>
-      </View>
-
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 110 },
+        ]}
+        contentInsetAdjustmentBehavior="automatic"
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
-        <View style={styles.innerContainer}>
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.sectionTitle}>Create A Streak Going!</Text>
-            <TaskCard
-              title="Streaks!"
-              description={
-                streakCount > 0
-                  ? `Current streak: ${streakCount} day${streakCount > 1 ? "s" : ""}`
-                  : "Complete at least 1 task today to start your streak!"
-              }
-              image={require("../../assets/images/fire flame-png 1.png")}
-              multiline
-              imageStyle={{ width: 40, height: 40 }}
-              showCircle={false}
-            />
-
-            <View style={{ marginTop: 18 }}>
-              <View style={styles.goalHeaderRow}>
-                <Text style={styles.sectionTitle}>Goals</Text>
-
-                <TouchableOpacity
-                  style={styles.setGoalsBtn}
-                  onPress={() => setGoalModalVisible(true)}
-                >
-                  <Text style={styles.setGoalsBtnText}>Set your goals</Text>
-                </TouchableOpacity>
-              </View>
-
-              {goals.length === 0 ? (
-                <Text style={styles.goalEmptyText}>
-                  No goals yet. Set one to start building better habits 💪
-                </Text>
-              ) : (
-                <View style={styles.goalList}>
-                  {goals.map((goal) => (
-                    <TouchableOpacity
-                      key={goal.id}
-                      style={[
-                        styles.goalCard,
-                        goal.completed && styles.goalCardCompleted,
-                      ]}
-                      onPress={() => toggleGoal(goal)}
-                      activeOpacity={0.8}
-                    >
-                      <View style={styles.goalCardLeft}>
-                        <View
-                          style={[
-                            styles.goalCheck,
-                            goal.completed && styles.goalCheckOn,
-                          ]}
-                        >
-                          {goal.completed ? (
-                            <Text style={styles.goalCheckMark}>✓</Text>
-                          ) : null}
-                        </View>
-                      </View>
-
-                      <View style={styles.goalCardBody}>
-                        <Text
-                          style={[
-                            styles.goalTitle,
-                            goal.completed && styles.goalTitleCompleted,
-                          ]}
-                        >
-                          {goal.title}
-                        </Text>
-
-                        <Text style={styles.goalWeekText}>
-                          Week of {goal.week_start}
-                        </Text>
-
-                        {goal.notes ? (
-                          <Text
-                            style={[
-                              styles.goalNotes,
-                              goal.completed && styles.goalNotesCompleted,
-                            ]}
-                          >
-                            {goal.notes}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            <Modal
-              visible={goalModalVisible}
-              transparent
-              animationType="fade"
-              onRequestClose={() => setGoalModalVisible(false)}
-            >
-              <View style={styles.goalModalOverlay}>
-                <View style={styles.goalModalCard}>
-                  <Text style={styles.goalModalTitle}>Set a new goal</Text>
-
-                  <TextInput
-                    value={newGoalTitle}
-                    onChangeText={setNewGoalTitle}
-                    placeholder="Goal title (e.g., Save RM200)"
-                    style={styles.goalModalInput}
-                    placeholderTextColor="#9CA3AF"
-                  />
-
-                  <TextInput
-                    value={newGoalNotes}
-                    onChangeText={setNewGoalNotes}
-                    placeholder="Notes (optional)"
-                    style={[styles.goalModalInput, { height: 80 }]}
-                    placeholderTextColor="#9CA3AF"
-                    multiline
-                  />
-
-                  <View style={styles.goalModalBtnRow}>
-                    <TouchableOpacity
-                      style={[styles.goalModalBtn, styles.goalModalBtnGhost]}
-                      onPress={() => setGoalModalVisible(false)}
-                    >
-                      <Text style={styles.goalModalBtnGhostText}>Cancel</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.goalModalBtn}
-                      onPress={addGoal}
-                    >
-                      <Text style={styles.goalModalBtnText}>Add goal</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </Modal>
-
-            <Text style={styles.subtitle}>Learning Paths</Text>
-
-            {learningPaths.length === 0 ? (
-              <Text style={styles.goalEmptyText}>
-                Loading financial modules...
-              </Text>
-            ) : (
-              learningPaths.map((path) => (
-                <TaskCard
-                  key={path.id}
-                  title={path.title}
-                  description={
-                    path.isFullyComplete
-                      ? "🎉 Path Completed!"
-                      : `${path.completedModules} of ${path.totalModules} modules finished`
-                  }
-                  image={
-                    PATH_IMAGES[path.title] ||
-                    require("../../assets/images/safe box.png")
-                  }
-                  onPress={() =>
-                    router.push({
-                      pathname: "/learning-path-details",
-                      params: { pathId: path.id, title: path.title },
-                    })
-                  }
-                />
-              ))
-            )}
-          </ScrollView>
+        <View style={styles.titleRow}>
+          <View>
+            <Text style={styles.eyebrow}>SAFE SPEND</Text>
+            <Text style={styles.screenTitle}>Money Skills</Text>
+          </View>
+          <View style={styles.streakPill}>
+            <Ionicons name="flame" size={17} color="#B75B0A" />
+            <Text selectable style={styles.streakText}>
+              {streakCount} day{streakCount === 1 ? "" : "s"}
+            </Text>
+          </View>
         </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+        <View style={styles.heroCard}>
+          <Text style={styles.heroEyebrow}>LEARN. DECIDE. ACT.</Text>
+          <Text style={styles.heroTitle}>
+            Build money habits that work in real Malaysian life.
+          </Text>
+          <Text selectable style={styles.heroBody}>
+            Short lessons, practical decisions and sources you can inspect.
+          </Text>
+          <View style={styles.heroProgressRow}>
+            <View style={styles.heroProgressTrack}>
+              <View
+                style={[
+                  styles.heroProgressFill,
+                  {
+                    width: `${totalModules ? (completedModules / totalModules) * 100 : 0}%`,
+                  },
+                ]}
+              />
+            </View>
+            <Text selectable style={styles.heroProgressText}>
+              {completedModules}/{totalModules}
+            </Text>
+          </View>
+        </View>
+
+        {error ? <Text selectable style={styles.errorText}>{error}</Text> : null}
+
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Foundation paths</Text>
+            <Text style={styles.sectionSubtitle}>
+              Start with the next unfinished path or revisit any lesson.
+            </Text>
+          </View>
+          {nextPath ? (
+            <Text style={styles.nextBadge}>NEXT: {nextPath.sort_order}</Text>
+          ) : null}
+        </View>
+
+        {loading ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color={PRIMARY} />
+          </View>
+        ) : paths.length ? (
+          paths.map((path) => {
+            const theme =
+              PATH_THEMES[path.slug || ""] ?? PATH_THEMES["money-basics"];
+            const pathCompleted = path.learning_modules.filter((module) =>
+              completedModuleIds.has(module.id),
+            ).length;
+            const percent = path.learning_modules.length
+              ? (pathCompleted / path.learning_modules.length) * 100
+              : 0;
+            const complete =
+              path.learning_modules.length > 0 &&
+              pathCompleted === path.learning_modules.length;
+
+            return (
+              <Link
+                key={path.id}
+                href={{
+                  pathname: "/learning-path-details",
+                  params: {
+                    pathId: path.id,
+                    title: path.title,
+                    reviewedAt: path.reviewed_at || "",
+                  },
+                }}
+                asChild
+              >
+                <TouchableOpacity
+                  style={styles.pathCard}
+                  activeOpacity={0.82}
+                  accessibilityLabel={`Open ${path.title}`}
+                >
+                  <View style={styles.pathTopRow}>
+                    <View
+                      style={[
+                        styles.pathIcon,
+                        { backgroundColor: theme.background },
+                      ]}
+                    >
+                      <Ionicons name={theme.icon} size={24} color={theme.color} />
+                    </View>
+                    <View style={styles.pathOrderBlock}>
+                      <Text style={styles.pathOrder}>PATH {path.sort_order}</Text>
+                      <Text style={styles.pathTime}>
+                        {path.estimated_minutes} min
+                      </Text>
+                    </View>
+                    {complete ? (
+                      <Ionicons name="checkmark-circle" size={24} color="#138A6C" />
+                    ) : (
+                      <Ionicons name="chevron-forward" size={20} color="#7C918C" />
+                    )}
+                  </View>
+                  <Text style={styles.pathTitle}>{path.title}</Text>
+                  <Text selectable style={styles.pathDescription}>
+                    {path.description}
+                  </Text>
+                  <View style={styles.pathMetaRow}>
+                    <View style={styles.researchBadge}>
+                      <Ionicons name="library-outline" size={13} color="#406B62" />
+                      <Text style={styles.researchText}>Sources included</Text>
+                    </View>
+                    <Text selectable style={styles.moduleCount}>
+                      {pathCompleted}/{path.learning_modules.length} steps
+                    </Text>
+                  </View>
+                  <View style={styles.pathProgressTrack}>
+                    <View
+                      style={[
+                        styles.pathProgressFill,
+                        { width: `${percent}%`, backgroundColor: theme.color },
+                      ]}
+                    />
+                  </View>
+                </TouchableOpacity>
+              </Link>
+            );
+          })
+        ) : (
+          <View style={styles.emptyCard}>
+            <Ionicons name="cloud-offline-outline" size={30} color="#6C817D" />
+            <Text style={styles.emptyTitle}>No published paths available</Text>
+            <Text selectable style={styles.emptyText}>
+              Pull down to refresh once your connection returns.
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.evidencePromise}>
+          <Ionicons name="shield-checkmark-outline" size={25} color="#087D65" />
+          <View style={styles.evidenceTextBlock}>
+            <Text style={styles.evidenceTitle}>Evidence you can inspect</Text>
+            <Text selectable style={styles.evidenceBody}>
+              Every path identifies official Malaysian guidance, research findings,
+              limitations and its last review date.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.goalCard}>
+          <View style={styles.goalHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>This week&apos;s money action</Text>
+              <Text style={styles.goalWeek}>Week of {weekStart}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.addGoalButton}
+              onPress={() => setGoalModalVisible(true)}
+              accessibilityLabel="Add a weekly money goal"
+            >
+              <Ionicons name="add" size={19} color="#052224" />
+              <Text style={styles.addGoalText}>Add</Text>
+            </TouchableOpacity>
+          </View>
+          {goals.length ? (
+            <View style={styles.goalList}>
+              {goals.map((goal) => (
+                <TouchableOpacity
+                  key={goal.id}
+                  style={styles.goalRow}
+                  onPress={() => void toggleGoal(goal)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: goal.completed }}
+                >
+                  <Ionicons
+                    name={goal.completed ? "checkmark-circle" : "ellipse-outline"}
+                    size={23}
+                    color={goal.completed ? "#138A6C" : "#78908A"}
+                  />
+                  <View style={styles.goalTextBlock}>
+                    <Text
+                      selectable
+                      style={[
+                        styles.goalTitle,
+                        goal.completed && styles.goalTitleComplete,
+                      ]}
+                    >
+                      {goal.title}
+                    </Text>
+                    {goal.notes ? (
+                      <Text selectable style={styles.goalNotes}>
+                        {goal.notes}
+                      </Text>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <Text selectable style={styles.noGoalText}>
+              Choose one small action from a lesson and make it visible here.
+            </Text>
+          )}
+        </View>
+      </ScrollView>
+
+      <Modal
+        visible={goalModalVisible || openGoal === "1"}
+        transparent
+        animationType="fade"
+        onRequestClose={closeGoalModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalEyebrow}>ONE ACTION THIS WEEK</Text>
+            <Text style={styles.modalTitle}>Create a money goal</Text>
+            <TextInput
+              value={newGoalTitle}
+              onChangeText={setNewGoalTitle}
+              placeholder="Example: Move RM50 to my emergency fund"
+              placeholderTextColor="#8A9A96"
+              maxLength={100}
+              style={styles.modalInput}
+            />
+            <TextInput
+              value={newGoalNotes}
+              onChangeText={setNewGoalNotes}
+              placeholder="Why this matters or when you will do it (optional)"
+              placeholderTextColor="#8A9A96"
+              maxLength={500}
+              multiline
+              style={[styles.modalInput, styles.modalNotes]}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={closeGoalModal}
+                disabled={savingGoal}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveGoalButton, savingGoal && styles.disabled]}
+                onPress={() => void addGoal()}
+                disabled={savingGoal}
+              >
+                {savingGoal ? (
+                  <ActivityIndicator color="#052224" />
+                ) : (
+                  <Text style={styles.saveGoalText}>Save goal</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
-type TaskCardProps = {
-  title: string;
-  description: string;
-  image: any;
-  imageStyle?: any;
-  multiline?: boolean;
-  showCircle?: boolean;
-  onPress?: () => void;
-};
-
-const TaskCard: React.FC<TaskCardProps> = ({
-  title,
-  description,
-  multiline,
-  image,
-  imageStyle,
-  showCircle = true,
-  onPress,
-}) => {
-  return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
-      <View style={styles.card}>
-        <View style={styles.imageWrapper}>
-          <Image source={image} style={[styles.cardImage, imageStyle]} />
-        </View>
-
-        <View style={styles.cardTextContainer}>
-          <Text style={styles.cardTitle}>{title}</Text>
-          <Text
-            style={[styles.cardDescription, multiline && { width: "90%" }]}
-            numberOfLines={multiline ? 3 : 1}
-          >
-            {description}
-          </Text>
-        </View>
-
-        {showCircle ? (
-          <View style={styles.arrowWrapper}>
-            <Ionicons name="chevron-forward" size={20} color="#2F80ED" />
-          </View>
-        ) : (
-          <View style={styles.circleSpacer} />
-        )}
-      </View>
-    </TouchableOpacity>
-  );
-};
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: PRIMARY,
-  },
-  header: {
-    flexDirection: "column",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 25,
-    paddingTop: 25,
-    justifyContent: "space-between",
-  },
-  headerTitle: {
-    color: "#052224",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  innerContainer: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
-    overflow: "hidden",
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 32,
-  },
-  subtitle: {
-    textAlign: "center",
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#0E3E3E",
-    marginBottom: 24,
-    marginTop: 16,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#0E3E3E",
-    marginBottom: 10,
-  },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: CARD_BG,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 16,
-  },
-  imageWrapper: {
-    width: 70,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  cardTextContainer: {
-    flex: 1,
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#16302A",
-    marginBottom: 4,
-  },
-  cardDescription: {
-    fontSize: 12,
-    color: "#6B7A7A",
-  },
-  cardImage: {
-    width: 80,
-    height: 80,
-    resizeMode: "cover",
-  },
-  circleSpacer: {
-    width: 24,
-    height: 24,
-    marginLeft: 8,
-  },
-  arrowWrapper: {
-    width: 24,
-    height: 24,
-    marginLeft: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  badgePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#E9FFF4",
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginBottom: 8,
-  },
-  badgeEmoji: {
-    fontSize: 16,
-  },
-  badgeName: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#16302A",
-  },
-  badgeDescription: {
-    fontSize: 10,
-    color: "#4A5B5B",
-  },
-  badgeHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 16,
-    marginBottom: 6,
-  },
-  viewAllText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#2F80ED",
-  },
-  badgeProgressText: {
-    fontSize: 11,
-    color: "#4A5B5B",
-    marginBottom: 4,
-  },
-  badgeProgressBar: {
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: "#E3EBEB",
-    overflow: "hidden",
-    marginBottom: 10,
-  },
-  badgeProgressFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: "#00D09E",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    justifyContent: "flex-end",
-  },
-  modalContainer: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
-    maxHeight: "70%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#052224",
-  },
-  modalScrollContent: {
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
-  modalBadgeGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    rowGap: 12,
-  },
-  modalBadgeCard: {
-    width: "48%",
-    backgroundColor: "#E9FFF4",
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    alignItems: "center",
-  },
-  modalBadgeEmoji: {
-    fontSize: 28,
-    marginBottom: 4,
-  },
-  modalBadgeName: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#16302A",
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  modalBadgeDescription: {
-    fontSize: 11,
-    color: "#4A5B5B",
-    textAlign: "center",
-  },
-  modalEmptyState: {
-    alignItems: "center",
-    paddingVertical: 32,
-    paddingHorizontal: 16,
-  },
-  modalEmptyEmoji: {
-    fontSize: 40,
-    marginBottom: 8,
-  },
-  modalEmptyTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#16302A",
-    marginBottom: 4,
-  },
-  modalEmptyText: {
-    fontSize: 12,
-    color: "#4A5B5B",
-    textAlign: "center",
-  },
-  moreBadgesText: {
-    marginTop: 6,
-    fontSize: 12,
-    color: "#6B7280",
-    textAlign: "right",
-  },
-  goalHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-  setGoalsBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: "#00D09E",
-  },
-  setGoalsBtnText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  goalEmptyText: {
-    color: "#6B7280",
-    fontSize: 13,
-    marginTop: 6,
-  },
-  goalList: {
-    gap: 10,
-  },
-  goalCard: {
-    flexDirection: "row",
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 20,
-  },
-  goalCardCompleted: {
-    opacity: 0.75,
-  },
-  goalCardLeft: {
-    marginRight: 10,
-    justifyContent: "center",
-  },
-  goalCheck: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: "#9CA3AF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  goalCheckOn: {
-    borderColor: "#16A34A",
-    backgroundColor: "#16A34A",
-  },
-  goalCheckMark: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-    marginTop: -1,
-  },
-  goalCardBody: {
-    flex: 1,
-  },
-  goalTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  goalTitleCompleted: {
-    textDecorationLine: "line-through",
-    color: "#6B7280",
-  },
-  goalNotes: {
-    marginTop: 4,
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  goalNotesCompleted: {
-    textDecorationLine: "line-through",
-  },
-  goalModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    padding: 18,
-  },
-  goalModalCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 16,
-  },
-  goalModalTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    marginBottom: 12,
-    color: "#111827",
-  },
-  goalModalInput: {
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13,
-    color: "#111827",
-    marginBottom: 10,
-  },
-  goalModalBtnRow: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 10,
-    marginTop: 4,
-  },
-  goalModalBtn: {
-    backgroundColor: "#00D09E",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-  },
-  goalModalBtnText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  goalModalBtnGhost: {
-    backgroundColor: "#F3F4F6",
-  },
-  goalModalBtnGhostText: {
-    color: "#111827",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  goalWeekText: {
-    marginTop: 2,
-    fontSize: 11,
-    color: "#9CA3AF",
-  },
+  container: { flex: 1, backgroundColor: "#F4F8F6" },
+  content: { paddingHorizontal: 18, gap: 14 },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  eyebrow: { color: "#4D6F68", fontSize: 10, fontWeight: "800", letterSpacing: 1.3 },
+  screenTitle: { color: INK, fontSize: 27, fontWeight: "800" },
+  streakPill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 999, backgroundColor: "#FFF0D9" },
+  streakText: { color: "#7B470B", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  heroCard: { padding: 20, borderRadius: 22, backgroundColor: INK, borderCurve: "continuous" },
+  heroEyebrow: { color: "#7AE2C6", fontSize: 10, fontWeight: "800", letterSpacing: 1.2 },
+  heroTitle: { color: "#FFFFFF", fontSize: 21, lineHeight: 29, fontWeight: "800", paddingTop: 6 },
+  heroBody: { color: "#BBD3CD", fontSize: 12, lineHeight: 19, paddingTop: 7 },
+  heroProgressRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingTop: 18 },
+  heroProgressTrack: { flex: 1, height: 7, borderRadius: 999, backgroundColor: "#315653", overflow: "hidden" },
+  heroProgressFill: { height: "100%", borderRadius: 999, backgroundColor: PRIMARY },
+  heroProgressText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  errorText: { color: "#A33D3D", fontSize: 12, lineHeight: 18, textAlign: "center" },
+  sectionHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12, paddingTop: 6 },
+  sectionTitle: { color: INK, fontSize: 16, fontWeight: "800" },
+  sectionSubtitle: { color: "#667C77", fontSize: 11, paddingTop: 3 },
+  nextBadge: { color: "#087D65", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  loadingState: { minHeight: 330, alignItems: "center", justifyContent: "center" },
+  pathCard: { padding: 16, borderRadius: 18, backgroundColor: "#FFFFFF", borderCurve: "continuous", boxShadow: "0 2px 8px rgba(5, 34, 36, 0.06)" },
+  pathTopRow: { flexDirection: "row", alignItems: "center" },
+  pathIcon: { width: 47, height: 47, alignItems: "center", justifyContent: "center", borderRadius: 15, borderCurve: "continuous" },
+  pathOrderBlock: { flex: 1, paddingHorizontal: 11 },
+  pathOrder: { color: "#59746E", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  pathTime: { color: "#849590", fontSize: 10, paddingTop: 2 },
+  pathTitle: { color: INK, fontSize: 17, fontWeight: "800", paddingTop: 13 },
+  pathDescription: { color: "#5D716D", fontSize: 11, lineHeight: 18, paddingTop: 5 },
+  pathMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 13 },
+  researchBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, backgroundColor: "#EDF5F2" },
+  researchText: { color: "#406B62", fontSize: 9, fontWeight: "700" },
+  moduleCount: { color: "#667C77", fontSize: 10, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  pathProgressTrack: { height: 5, borderRadius: 999, backgroundColor: "#E7EFEC", overflow: "hidden", marginTop: 10 },
+  pathProgressFill: { height: "100%", borderRadius: 999 },
+  emptyCard: { minHeight: 220, alignItems: "center", justifyContent: "center", padding: 24, borderRadius: 18, backgroundColor: "#FFFFFF" },
+  emptyTitle: { color: INK, fontSize: 15, fontWeight: "800", paddingTop: 8 },
+  emptyText: { color: "#667C77", fontSize: 11, textAlign: "center", paddingTop: 4 },
+  evidencePromise: { flexDirection: "row", gap: 12, padding: 15, borderRadius: 17, backgroundColor: "#E3F5EF", borderCurve: "continuous" },
+  evidenceTextBlock: { flex: 1 },
+  evidenceTitle: { color: INK, fontSize: 13, fontWeight: "800" },
+  evidenceBody: { color: "#526C66", fontSize: 10, lineHeight: 16, paddingTop: 3 },
+  goalCard: { padding: 16, borderRadius: 18, backgroundColor: "#FFFFFF", borderCurve: "continuous" },
+  goalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  goalWeek: { color: "#81928E", fontSize: 9, paddingTop: 2 },
+  addGoalButton: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, backgroundColor: PRIMARY },
+  addGoalText: { color: "#052224", fontSize: 11, fontWeight: "800" },
+  goalList: { gap: 10, paddingTop: 14 },
+  goalRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 11, borderRadius: 13, backgroundColor: "#F4F8F6" },
+  goalTextBlock: { flex: 1 },
+  goalTitle: { color: INK, fontSize: 12, fontWeight: "700" },
+  goalTitleComplete: { color: "#748681", textDecorationLine: "line-through" },
+  goalNotes: { color: "#71837F", fontSize: 10, lineHeight: 15, paddingTop: 2 },
+  noGoalText: { color: "#667C77", fontSize: 11, lineHeight: 17, paddingTop: 12 },
+  modalOverlay: { flex: 1, justifyContent: "center", padding: 18, backgroundColor: "rgba(3, 25, 26, 0.55)" },
+  modalCard: { padding: 19, borderRadius: 20, backgroundColor: "#FFFFFF", borderCurve: "continuous" },
+  modalEyebrow: { color: "#087D65", fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  modalTitle: { color: INK, fontSize: 20, fontWeight: "800", paddingTop: 4, paddingBottom: 14 },
+  modalInput: { minHeight: 50, paddingHorizontal: 13, borderWidth: 1, borderColor: "#C9DAD4", borderRadius: 13, backgroundColor: "#FFFFFF", color: INK, fontSize: 12, marginBottom: 10 },
+  modalNotes: { minHeight: 82, paddingTop: 13, textAlignVertical: "top" },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 9, paddingTop: 4 },
+  cancelButton: { minWidth: 88, minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#E8EFED" },
+  cancelText: { color: INK, fontSize: 12, fontWeight: "700" },
+  saveGoalButton: { minWidth: 110, minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: PRIMARY },
+  saveGoalText: { color: "#052224", fontSize: 12, fontWeight: "800" },
+  disabled: { opacity: 0.55 },
 });

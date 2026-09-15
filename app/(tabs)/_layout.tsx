@@ -116,7 +116,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="edufinance"
         options={{
-          title: "EduFinance",
+          title: "Learn",
           tabBarIcon: ({ focused }) => (
             <AnimatedTabIcon
               focused={focused}

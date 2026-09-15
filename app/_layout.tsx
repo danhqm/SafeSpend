@@ -80,6 +80,14 @@ export default function RootLayout() {
             presentation: "modal",
           }}
         />
+        <Stack.Screen
+          name="learning-path-details"
+          options={{
+            headerShown: true,
+            title: "Money Skills",
+            headerBackTitle: "Learn",
+          }}
+        />
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />

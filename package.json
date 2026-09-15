@@ -12,7 +12,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --experimental-strip-types --test tests/finance.test.ts",
+    "test": "node --experimental-strip-types --test tests/finance.test.ts tests/learning.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,8 +1,20 @@
-import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { EvidenceSection } from "@/components/evidence-section";
 import {
-  Dimensions,
+  isActionPayload,
+  isLessonPayload,
+  isQuizPayload,
+  localLearningDate,
+  type LearningModule,
+  type QuizResult,
+} from "@/types/learning";
+import { supabase } from "@/utils/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router/react-navigation";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,433 +22,578 @@ import {
   View,
 } from "react-native";
 
-import { SafeAreaView } from "react-native-safe-area-context";
-import { supabase } from "../utils/supabase";
-
-function getTodayDateString() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-const { width } = Dimensions.get("window");
 const PRIMARY = "#00D09E";
+const INK = "#093030";
+
+type QuizAnswers = Record<string, string>;
+
+function moduleLabel(module: LearningModule): string {
+  if (module.module_type === "quiz") return "KNOWLEDGE CHECK";
+  if (module.module_type === "action") return "PUT IT INTO PRACTICE";
+  return "SHORT LESSON";
+}
 
 export default function LearningPathDetailsScreen() {
   const router = useRouter();
-  const { pathId, title } = useLocalSearchParams();
-
-  const [modules, setModules] = useState<any[]>([]);
+  const params = useLocalSearchParams<{
+    pathId?: string | string[];
+    title?: string | string[];
+    reviewedAt?: string | string[];
+  }>();
+  const pathId = Array.isArray(params.pathId) ? params.pathId[0] : params.pathId;
+  const pathTitle = Array.isArray(params.title) ? params.title[0] : params.title;
+  const reviewedAt = Array.isArray(params.reviewedAt)
+    ? params.reviewedAt[0]
+    : params.reviewedAt;
+  const [modules, setModules] = useState<LearningModule[]>([]);
+  const [completedModuleIds, setCompletedModuleIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [activeModuleIndex, setActiveModuleIndex] = useState(0);
+  const [slideIndex, setSlideIndex] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState<QuizAnswers>({});
+  const [quizResult, setQuizResult] = useState<QuizResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const scrollRef = useRef<ScrollView>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadModules() {
-      const { data: authData } = await supabase.auth.getUser();
-      const user = authData?.user;
-      if (!user) {
-        if (!cancelled) setLoading(false);
-        return;
-      }
-
-      const { data: moduleData, error: moduleError } = await supabase
-        .from("learning_modules")
-        .select("*")
-        .eq("path_id", pathId)
-        .order("sort_order", { ascending: true });
-
-      if (moduleError || !moduleData) {
-        console.log("Error loading modules:", moduleError);
-        if (!cancelled) setLoading(false);
-        return;
-      }
-
-      const { data: progressData } = await supabase
-        .from("user_path_progress")
-        .select("module_id")
-        .eq("user_id", user.id);
-      if (cancelled) return;
-
-      const completedIds = new Set((progressData || []).map((p) => p.module_id));
-      let nextUnfinishedIndex = 0;
-      let allCompleted = true;
-
-      for (let i = 0; i < moduleData.length; i++) {
-        if (!completedIds.has(moduleData[i].id)) {
-          nextUnfinishedIndex = i;
-          allCompleted = false;
-          break;
-        }
-      }
-
-      setModules(moduleData);
-      setActiveModuleIndex(allCompleted ? 0 : nextUnfinishedIndex);
+  const loadModules = useCallback(async () => {
+    if (!pathId) {
+      setError("This learning path is missing its identifier.");
       setLoading(false);
-    }
-
-    void loadModules();
-    return () => {
-      cancelled = true;
-    };
-  }, [pathId]);
-
-  const markModuleComplete = async (skipNavigation = false) => {
-    const currentModule = modules[activeModuleIndex];
-    const { data: authData } = await supabase.auth.getUser();
-    const user = authData?.user;
-    if (!user) return;
-
-    // Save progress to Supabase
-    await supabase.from("user_path_progress").upsert(
-      {
-        user_id: user.id,
-        module_id: currentModule.id,
-      },
-      { onConflict: "user_id,module_id" },
-    );
-
-    // 🔥 STREAK LOGIC: If this is the last module, award the streak!
-    if (activeModuleIndex === modules.length - 1) {
-      await awardStreakIfNeeded(user.id);
-    }
-
-    // Move to next module or finish
-    if (activeModuleIndex < modules.length - 1) {
-      setActiveModuleIndex((prev) => prev + 1);
-      setCurrentSlideIndex(0);
-    } else if (!skipNavigation) {
-      router.back();
-    }
-  };
-
-  const awardStreakIfNeeded = async (userId: string) => {
-    const today = getTodayDateString();
-
-    // Check if they already earned a streak today
-    const { data: existing, error: existingError } = await supabase
-      .from("user_streaks")
-      .select("id")
-      .eq("user_id", userId)
-      .eq("date", today)
-      .maybeSingle();
-
-    if (existingError) {
-      console.log("Error checking streak:", existingError);
       return;
     }
 
-    // If they already have a streak for today, do nothing
-    if (existing) return;
+    setError(null);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (authError || !userId) {
+        throw authError ?? new Error("Authentication required");
+      }
 
-    // Otherwise, insert a new streak record
-    const { error: insertError } = await supabase
-      .from("user_streaks")
-      .insert({ user_id: userId, date: today });
+      const [moduleResult, progressResult] = await Promise.all([
+        supabase
+          .from("learning_modules")
+          .select(
+            "id, path_id, slug, title, module_type, content_payload, action_trigger, sort_order, estimated_minutes, competency, learning_module_sources(sort_order, evidence_note, content_sources(id, source_key, title, authors, publisher, publication_year, source_type, url, doi, jurisdiction, summary, limitations, reviewed_at))",
+          )
+          .eq("path_id", pathId)
+          .order("sort_order", { ascending: true }),
+        supabase
+          .from("user_path_progress")
+          .select("module_id")
+          .eq("user_id", userId),
+      ]);
 
-    if (insertError) {
-      console.log("Error inserting streak:", insertError);
+      if (moduleResult.error) throw moduleResult.error;
+      if (progressResult.error) throw progressResult.error;
+
+      const nextModules = (moduleResult.data || []) as unknown as LearningModule[];
+      const nextCompletedIds = new Set(
+        (progressResult.data || []).map((row) => row.module_id),
+      );
+      const firstUnfinished = nextModules.findIndex(
+        (module) => !nextCompletedIds.has(module.id),
+      );
+
+      setModules(nextModules);
+      setCompletedModuleIds(nextCompletedIds);
+      setActiveModuleIndex(firstUnfinished >= 0 ? firstUnfinished : 0);
+      setSlideIndex(0);
+      setQuizAnswers({});
+      setQuizResult(null);
+    } catch (loadError) {
+      console.error("Learning path load failed", loadError);
+      setError("Could not load this learning path. Please go back and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [pathId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadModules();
+    }, [loadModules]),
+  );
+
+  const currentModule = modules[activeModuleIndex];
+
+  const completedCount = useMemo(
+    () => modules.filter((module) => completedModuleIds.has(module.id)).length,
+    [completedModuleIds, modules],
+  );
+
+  const finishModule = useCallback(async (moduleId: string): Promise<boolean> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+      if (authError || !userId) {
+        throw authError ?? new Error("Authentication required");
+      }
+
+      const [progressResult, streakResult] = await Promise.all([
+        supabase.from("user_path_progress").upsert(
+          { user_id: userId, module_id: moduleId },
+          { onConflict: "user_id,module_id", ignoreDuplicates: true },
+        ),
+        supabase.from("user_streaks").upsert(
+          { user_id: userId, date: localLearningDate() },
+          { onConflict: "user_id,date", ignoreDuplicates: true },
+        ),
+      ]);
+      if (progressResult.error) throw progressResult.error;
+      if (streakResult.error) throw streakResult.error;
+
+      setCompletedModuleIds((current) => new Set(current).add(moduleId));
+      return true;
+    } catch (saveError) {
+      console.error("Learning progress save failed", saveError);
+      setError("Your progress could not be saved. Please try again.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const continueToNextModule = useCallback(() => {
+    if (activeModuleIndex < modules.length - 1) {
+      setSlideIndex(0);
+      setQuizAnswers({});
+      setQuizResult(null);
+      setError(null);
+      setActiveModuleIndex((current) => current + 1);
     } else {
-      console.log("🔥 Daily streak recorded for", today);
+      router.back();
     }
-  };
+  }, [activeModuleIndex, modules.length, router]);
 
-  const handleScroll = (event: any) => {
-    const slideSize = event.nativeEvent.layoutMeasurement.width;
-    const index = event.nativeEvent.contentOffset.x / slideSize;
-    setCurrentSlideIndex(Math.round(index));
-  };
+  const completeAndContinue = useCallback(async () => {
+    if (!currentModule) return;
+    const saved = await finishModule(currentModule.id);
+    if (saved) continueToNextModule();
+  }, [continueToNextModule, currentModule, finishModule]);
 
-  const renderActiveModule = () => {
-    if (modules.length === 0)
-      return <Text style={styles.emptyText}>No modules found.</Text>;
+  const submitQuiz = useCallback(async () => {
+    if (!currentModule || !isQuizPayload(currentModule.content_payload)) return;
+    const unanswered = currentModule.content_payload.questions.some(
+      (question) => !quizAnswers[question.id],
+    );
+    if (unanswered) {
+      Alert.alert("Complete every question", "Choose one answer for each question first.");
+      return;
+    }
 
-    const currentModule = modules[activeModuleIndex];
+    setBusy(true);
+    setError(null);
+    try {
+      const { data, error: submitError } = await supabase.rpc(
+        "submit_quiz_attempt",
+        {
+          p_module_id: currentModule.id,
+          p_answers: quizAnswers,
+        },
+      );
+      if (submitError) throw submitError;
+      const result = (data?.[0] || null) as QuizResult | null;
+      if (!result) throw new Error("Quiz result was empty");
 
-    // --- LESSON RENDERER ---
-    if (currentModule.module_type === "lesson") {
-      const lessonData = currentModule.content_payload;
-      const slides = lessonData?.slides || [];
+      setQuizResult(result);
+      if (result.passed) {
+        setCompletedModuleIds((current) => new Set(current).add(currentModule.id));
+      }
+    } catch (submitError) {
+      console.error("Quiz submission failed", submitError);
+      setError("Your quiz could not be scored. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }, [currentModule, quizAnswers]);
 
-      return (
-        <View style={styles.moduleContainer}>
-          <Text style={styles.moduleTitle}>{currentModule.title}</Text>
+  const takeAction = useCallback(async () => {
+    if (!currentModule) return;
+    const saved = await finishModule(currentModule.id);
+    if (!saved) return;
 
-          <View style={styles.carouselContainer}>
-            <ScrollView
-              ref={scrollRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onScroll={handleScroll}
-              scrollEventThrottle={16}
+    if (currentModule.action_trigger === "set_budget") {
+      router.replace("/budgets");
+      return;
+    }
+    if (currentModule.action_trigger === "set_goal") {
+      router.replace("/edufinance?openGoal=1");
+      return;
+    }
+    continueToNextModule();
+  }, [continueToNextModule, currentModule, finishModule, router]);
+
+  const renderLesson = () => {
+    if (!currentModule || !isLessonPayload(currentModule.content_payload)) {
+      return <Text style={styles.errorText}>This lesson is not available.</Text>;
+    }
+    const slides = currentModule.content_payload.slides;
+    const slide = slides[slideIndex];
+    const isLastSlide = slideIndex === slides.length - 1;
+
+    return (
+      <>
+        <View style={styles.lessonCard}>
+          <Text style={styles.slideNumber}>
+            POINT {slideIndex + 1} OF {slides.length}
+          </Text>
+          <Text style={styles.slideTitle}>{slide.title}</Text>
+          <Text selectable style={styles.slideBody}>
+            {slide.body}
+          </Text>
+          {slide.takeaway ? (
+            <View style={styles.takeawayBox}>
+              <Ionicons name="bulb-outline" size={18} color="#8A5A00" />
+              <Text selectable style={styles.takeawayText}>
+                {slide.takeaway}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={styles.pagination}>
+          {slides.map((entry, index) => (
+            <View
+              key={`${entry.title}-${index}`}
+              style={[styles.dot, index === slideIndex && styles.activeDot]}
+            />
+          ))}
+        </View>
+        <View style={styles.buttonRow}>
+          {slideIndex > 0 ? (
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => setSlideIndex((current) => current - 1)}
+              disabled={busy}
             >
-              {slides.map((slide: any, index: number) => (
-                <View key={index} style={styles.slide}>
-                  <Text style={styles.slideTitle}>{slide.title}</Text>
-                  <Text style={styles.slideBody}>{slide.body}</Text>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-
-          {/* Pagination Dots */}
-          <View style={styles.pagination}>
-            {slides.map((_: any, index: number) => (
-              <View
-                key={index}
-                style={[
-                  styles.dot,
-                  currentSlideIndex === index ? styles.activeDot : null,
-                ]}
-              />
-            ))}
-          </View>
-
+              <Text style={styles.secondaryButtonText}>Back</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
-            style={styles.actionButton}
+            style={[styles.primaryButton, busy && styles.disabled]}
             onPress={() => {
-              if (currentSlideIndex < slides.length - 1) {
-                // Go to next slide
-                scrollRef.current?.scrollTo({
-                  x: (currentSlideIndex + 1) * width,
-                  animated: true,
-                });
-              } else {
-                // Finish lesson
-                markModuleComplete();
-              }
+              if (isLastSlide) void completeAndContinue();
+              else setSlideIndex((current) => current + 1);
             }}
+            disabled={busy}
           >
-            <Text style={styles.actionButtonText}>
-              {currentSlideIndex < slides.length - 1
-                ? "Next Slide"
-                : "Complete Lesson"}
-            </Text>
+            {busy ? (
+              <ActivityIndicator color="#052224" />
+            ) : (
+              <Text style={styles.primaryButtonText}>
+                {isLastSlide ? "Complete lesson" : "Next point"}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
-      );
-    }
+      </>
+    );
+  };
 
-    // --- ACTION RENDERER ---
-    if (currentModule.module_type === "action") {
-      return (
-        <View style={styles.moduleContainer}>
-          <View style={styles.actionHero}>
-            <Text style={styles.actionHeroEmoji}>🎯</Text>
-            <Text style={styles.moduleTitle}>{currentModule.title}</Text>
-            <Text style={styles.slideBody}>
-              It&apos;s time to put your knowledge into practice.
+  const renderQuiz = () => {
+    if (!currentModule || !isQuizPayload(currentModule.content_payload)) {
+      return <Text style={styles.errorText}>This quiz is not available.</Text>;
+    }
+    const payload = currentModule.content_payload;
+
+    return (
+      <>
+        <View style={styles.quizIntro}>
+          <Ionicons name="checkmark-done-outline" size={22} color="#087D65" />
+          <Text selectable style={styles.quizIntroText}>
+            Answer every scenario. A score of {payload.passPercent}% or higher
+            completes this step.
+          </Text>
+        </View>
+        {payload.questions.map((question, questionIndex) => (
+          <View key={question.id} style={styles.questionCard}>
+            <Text style={styles.questionNumber}>QUESTION {questionIndex + 1}</Text>
+            <Text selectable style={styles.questionPrompt}>
+              {question.prompt}
             </Text>
+            <View style={styles.optionList}>
+              {question.options.map((option) => {
+                const selected = quizAnswers[question.id] === option.id;
+                const correct = quizResult && option.id === question.correctOptionId;
+                const selectedWrong = quizResult && selected && !correct;
+                return (
+                  <TouchableOpacity
+                    key={option.id}
+                    style={[
+                      styles.optionButton,
+                      selected && styles.optionSelected,
+                      correct && styles.optionCorrect,
+                      selectedWrong && styles.optionWrong,
+                    ]}
+                    onPress={() =>
+                      !quizResult &&
+                      setQuizAnswers((current) => ({
+                        ...current,
+                        [question.id]: option.id,
+                      }))
+                    }
+                    disabled={Boolean(quizResult)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                  >
+                    <Ionicons
+                      name={selected ? "radio-button-on" : "radio-button-off"}
+                      size={19}
+                      color={
+                        correct ? "#087D65" : selectedWrong ? "#A33D3D" : "#68807A"
+                      }
+                    />
+                    <Text selectable style={styles.optionText}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {quizResult ? (
+              <Text selectable style={styles.explanationText}>
+                {question.explanation}
+              </Text>
+            ) : null}
           </View>
+        ))}
 
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={async () => {
-              // Pass 'true' to prevent the automatic router.back()
-              await markModuleComplete(true);
-
-              switch (currentModule.action_trigger) {
-                case "set_goal":
-                  router.push("/edufinance");
-                  break;
-                case "scan_receipt":
-                  router.push("/receiptscanner");
-                  break;
-                case "set_budget":
-                  router.push("/");
-                  break;
-                default:
-                  router.back();
-              }
-            }}
+        {quizResult ? (
+          <View
+            style={[
+              styles.resultCard,
+              quizResult.passed ? styles.resultPass : styles.resultRetry,
+            ]}
           >
-            <Text style={styles.actionButtonText}>Take Action</Text>
-          </TouchableOpacity>
-        </View>
-      );
+            <Ionicons
+              name={quizResult.passed ? "checkmark-circle" : "refresh-circle"}
+              size={30}
+              color={quizResult.passed ? "#087D65" : "#9A5B13"}
+            />
+            <View style={styles.resultTextBlock}>
+              <Text style={styles.resultTitle}>
+                {quizResult.passed ? "Knowledge check passed" : "Review and retry"}
+              </Text>
+              <Text selectable style={styles.resultText}>
+                {quizResult.score} of {quizResult.total_questions} correct
+              </Text>
+            </View>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={[styles.primaryButton, busy && styles.disabled]}
+          onPress={() => {
+            if (!quizResult) void submitQuiz();
+            else if (quizResult.passed) continueToNextModule();
+            else {
+              setQuizAnswers({});
+              setQuizResult(null);
+            }
+          }}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator color="#052224" />
+          ) : (
+            <Text style={styles.primaryButtonText}>
+              {!quizResult
+                ? "Check my answers"
+                : quizResult.passed
+                  ? "Continue"
+                  : "Try again"}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </>
+    );
+  };
+
+  const renderAction = () => {
+    if (!currentModule || !isActionPayload(currentModule.content_payload)) {
+      return <Text style={styles.errorText}>This action is not available.</Text>;
     }
 
-    return null;
+    return (
+      <>
+        <View style={styles.actionCard}>
+          <View style={styles.actionIcon}>
+            <Ionicons name="flag-outline" size={31} color="#087D65" />
+          </View>
+          <Text style={styles.actionTitle}>Turn knowledge into a real step</Text>
+          <Text selectable style={styles.actionBody}>
+            {currentModule.content_payload.description}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.primaryButton, busy && styles.disabled]}
+          onPress={() => void takeAction()}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator color="#052224" />
+          ) : (
+            <Text style={styles.primaryButtonText}>
+              {currentModule.content_payload.buttonLabel}
+            </Text>
+          )}
+        </TouchableOpacity>
+      </>
+    );
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
-          <Ionicons name="chevron-back" size={28} color="#093030" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{title || "Learning Path"}</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      {/* Progress Bar */}
-      <View style={styles.progressContainer}>
-        <Text style={styles.progressText}>
-          Step {activeModuleIndex + 1} of {modules.length}
-        </Text>
-        <View style={styles.progressBarBg}>
-          <View
-            style={[
-              styles.progressBarFill,
-              {
-                width: `${modules.length > 0 ? ((activeModuleIndex + 1) / modules.length) * 100 : 0}%`,
-              },
-            ]}
-          />
-        </View>
-      </View>
-
-      {/* Content Area */}
-      <View style={styles.innerContainer}>
+    <>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: pathTitle || "Money Skills",
+          headerBackTitle: "Learn",
+        }}
+      />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        contentInsetAdjustmentBehavior="automatic"
+      >
         {loading ? (
-          <Text style={styles.emptyText}>Loading module...</Text>
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color={PRIMARY} />
+          </View>
+        ) : error && !currentModule ? (
+          <View style={styles.loadingState}>
+            <Ionicons name="alert-circle-outline" size={31} color="#A33D3D" />
+            <Text selectable style={styles.errorText}>{error}</Text>
+          </View>
+        ) : currentModule ? (
+          <>
+            <View style={styles.progressHeader}>
+              <View style={styles.progressTextRow}>
+                <Text style={styles.progressLabel}>
+                  STEP {activeModuleIndex + 1} OF {modules.length}
+                </Text>
+                <Text selectable style={styles.completedText}>
+                  {completedCount} complete
+                </Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${modules.length ? ((activeModuleIndex + 1) / modules.length) * 100 : 0}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+
+            <View style={styles.moduleHeader}>
+              <Text style={styles.moduleType}>{moduleLabel(currentModule)}</Text>
+              <Text style={styles.moduleTitle}>{currentModule.title}</Text>
+              {currentModule.competency ? (
+                <Text selectable style={styles.competency}>
+                  Goal: {currentModule.competency}
+                </Text>
+              ) : null}
+              <View style={styles.timeBadge}>
+                <Ionicons name="time-outline" size={13} color="#58716B" />
+                <Text style={styles.timeText}>
+                  About {currentModule.estimated_minutes} minutes
+                </Text>
+              </View>
+            </View>
+
+            {error ? <Text selectable style={styles.inlineError}>{error}</Text> : null}
+
+            {currentModule.module_type === "lesson" ? renderLesson() : null}
+            {currentModule.module_type === "quiz" ? renderQuiz() : null}
+            {currentModule.module_type === "action" ? renderAction() : null}
+
+            <EvidenceSection
+              links={currentModule.learning_module_sources || []}
+              reviewedAt={reviewedAt}
+            />
+
+            <View style={styles.disclaimerCard}>
+              <Ionicons name="information-circle-outline" size={18} color="#5E726D" />
+              <Text selectable style={styles.disclaimerText}>
+                Educational information only—not personalised financial advice.
+                Rules and product terms can change; inspect the original sources.
+              </Text>
+            </View>
+          </>
         ) : (
-          renderActiveModule()
+          <View style={styles.loadingState}>
+            <Text selectable style={styles.errorText}>
+              No published modules were found for this path.
+            </Text>
+          </View>
         )}
-      </View>
-    </SafeAreaView>
+      </ScrollView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: PRIMARY,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 20,
-  },
-  backButton: {
-    width: 40,
-    alignItems: "flex-start",
-  },
-  headerTitle: {
-    color: "#093030",
-    fontSize: 18,
-    fontWeight: "700",
-    flex: 1,
-    textAlign: "center",
-  },
-  progressContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  progressText: {
-    color: "#093030",
-    fontSize: 12,
-    fontWeight: "600",
-    marginBottom: 8,
-  },
-  progressBarBg: {
-    height: 6,
-    backgroundColor: "rgba(255,255,255,0.4)",
-    borderRadius: 3,
-  },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: "#093030",
-    borderRadius: 3,
-  },
-  innerContainer: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
-    padding: 24,
-  },
-  emptyText: {
-    textAlign: "center",
-    marginTop: 40,
-    color: "#6B7280",
-  },
-  moduleContainer: {
-    flex: 1,
-  },
-  moduleTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#111827",
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  carouselContainer: {
-    height: 300,
-    backgroundColor: "#F9FAFB",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    overflow: "hidden",
-  },
-  slide: {
-    width: width - 48, // screen width minus padding
-    padding: 24,
-    justifyContent: "center",
-  },
-  slideTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginBottom: 12,
-  },
-  slideBody: {
-    fontSize: 15,
-    color: "#4B5563",
-    lineHeight: 24,
-  },
-  pagination: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 20,
-    marginBottom: 30,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#D1D5DB",
-    marginHorizontal: 4,
-  },
-  activeDot: {
-    backgroundColor: PRIMARY,
-    width: 20,
-  },
-  actionButton: {
-    backgroundColor: PRIMARY,
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    marginTop: "auto",
-    marginBottom: 20,
-  },
-  actionButtonText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  actionHero: {
-    alignItems: "center",
-    justifyContent: "center",
-    flex: 1,
-  },
-  actionHeroEmoji: {
-    fontSize: 60,
-    marginBottom: 20,
-  },
+  container: { flex: 1, backgroundColor: "#F4F8F6" },
+  content: { padding: 18, paddingBottom: 48, gap: 14 },
+  loadingState: { minHeight: 520, alignItems: "center", justifyContent: "center", gap: 9 },
+  errorText: { color: "#A33D3D", fontSize: 12, lineHeight: 18, textAlign: "center" },
+  progressHeader: { padding: 15, borderRadius: 16, backgroundColor: INK },
+  progressTextRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  progressLabel: { color: "#86DCC6", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  completedText: { color: "#C7DDD7", fontSize: 9, fontVariant: ["tabular-nums"] },
+  progressTrack: { height: 6, borderRadius: 999, backgroundColor: "#315653", overflow: "hidden", marginTop: 10 },
+  progressFill: { height: "100%", borderRadius: 999, backgroundColor: PRIMARY },
+  moduleHeader: { alignItems: "center", paddingVertical: 8 },
+  moduleType: { color: "#087D65", fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  moduleTitle: { color: INK, fontSize: 23, lineHeight: 31, fontWeight: "800", textAlign: "center", paddingTop: 5 },
+  competency: { color: "#5D716D", fontSize: 11, lineHeight: 17, textAlign: "center", paddingTop: 7 },
+  timeBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: "#E5EFEC", marginTop: 9 },
+  timeText: { color: "#58716B", fontSize: 9, fontWeight: "700" },
+  inlineError: { color: "#A33D3D", fontSize: 11, lineHeight: 17, textAlign: "center", padding: 10, borderRadius: 12, backgroundColor: "#FDECEC" },
+  lessonCard: { minHeight: 330, justifyContent: "center", padding: 22, borderRadius: 20, backgroundColor: "#FFFFFF", borderCurve: "continuous", boxShadow: "0 2px 8px rgba(5, 34, 36, 0.06)" },
+  slideNumber: { color: "#087D65", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  slideTitle: { color: INK, fontSize: 21, lineHeight: 28, fontWeight: "800", paddingTop: 9 },
+  slideBody: { color: "#425C56", fontSize: 14, lineHeight: 23, paddingTop: 12 },
+  takeawayBox: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 13, borderRadius: 13, backgroundColor: "#FFF4D6", marginTop: 18 },
+  takeawayText: { flex: 1, color: "#6C4A0A", fontSize: 11, lineHeight: 17, fontWeight: "700" },
+  pagination: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  dot: { width: 7, height: 7, borderRadius: 999, backgroundColor: "#C9D6D2" },
+  activeDot: { width: 22, backgroundColor: PRIMARY },
+  buttonRow: { flexDirection: "row", gap: 9 },
+  primaryButton: { flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: PRIMARY },
+  primaryButtonText: { color: "#052224", fontSize: 13, fontWeight: "800" },
+  secondaryButton: { minWidth: 92, minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: "#E3ECE9" },
+  secondaryButtonText: { color: INK, fontSize: 13, fontWeight: "700" },
+  disabled: { opacity: 0.55 },
+  quizIntro: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 13, borderRadius: 14, backgroundColor: "#E3F5EF" },
+  quizIntroText: { flex: 1, color: "#41635B", fontSize: 10, lineHeight: 16 },
+  questionCard: { padding: 16, borderRadius: 18, backgroundColor: "#FFFFFF", borderCurve: "continuous" },
+  questionNumber: { color: "#087D65", fontSize: 8, fontWeight: "900", letterSpacing: 0.8 },
+  questionPrompt: { color: INK, fontSize: 14, lineHeight: 21, fontWeight: "800", paddingTop: 7 },
+  optionList: { gap: 8, paddingTop: 13 },
+  optionButton: { minHeight: 51, flexDirection: "row", alignItems: "center", gap: 9, padding: 11, borderWidth: 1, borderColor: "#D4E0DD", borderRadius: 13, backgroundColor: "#FAFCFB" },
+  optionSelected: { borderColor: "#087D65", backgroundColor: "#E7F6F1" },
+  optionCorrect: { borderColor: "#087D65", backgroundColor: "#DDF5ED" },
+  optionWrong: { borderColor: "#B65A5A", backgroundColor: "#FDECEC" },
+  optionText: { flex: 1, color: "#31504D", fontSize: 11, lineHeight: 17 },
+  explanationText: { color: "#526C66", fontSize: 10, lineHeight: 16, paddingTop: 12 },
+  resultCard: { flexDirection: "row", alignItems: "center", gap: 11, padding: 14, borderRadius: 15 },
+  resultPass: { backgroundColor: "#DDF5ED" },
+  resultRetry: { backgroundColor: "#FFF0D9" },
+  resultTextBlock: { flex: 1 },
+  resultTitle: { color: INK, fontSize: 13, fontWeight: "800" },
+  resultText: { color: "#5D716D", fontSize: 10, paddingTop: 2, fontVariant: ["tabular-nums"] },
+  actionCard: { minHeight: 300, alignItems: "center", justifyContent: "center", padding: 24, borderRadius: 20, backgroundColor: "#FFFFFF", borderCurve: "continuous" },
+  actionIcon: { width: 68, height: 68, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: "#DDF5ED" },
+  actionTitle: { color: INK, fontSize: 19, lineHeight: 27, fontWeight: "800", textAlign: "center", paddingTop: 16 },
+  actionBody: { color: "#526C66", fontSize: 12, lineHeight: 20, textAlign: "center", paddingTop: 9 },
+  disclaimerCard: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 13, backgroundColor: "#E8EFED" },
+  disclaimerText: { flex: 1, color: "#5E726D", fontSize: 9, lineHeight: 15 },
 });
