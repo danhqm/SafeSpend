@@ -89,6 +89,41 @@ export type QuizResult = {
   passed: boolean;
 };
 
+export type MoneyMissionCategory =
+  | "spending"
+  | "saving"
+  | "debt"
+  | "planning";
+
+export type MoneyMissionTemplate = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  why_it_helps: string;
+  steps: string[];
+  category: MoneyMissionCategory;
+  estimated_minutes: number;
+  action_label: string | null;
+  action_trigger: "home" | "add_transaction" | "budgets" | "goal" | null;
+  rotation_order: number;
+  reviewed_at: string;
+  money_mission_sources?: ModuleSourceLink[];
+};
+
+export type WeeklyMoneyMission = {
+  id: string;
+  user_id: string;
+  mission_id: string;
+  week_start: string;
+  completed_at: string | null;
+  created_at: string;
+  money_mission_templates:
+    | MoneyMissionTemplate
+    | MoneyMissionTemplate[]
+    | null;
+};
+
 export function isLessonPayload(value: unknown): value is LessonPayload {
   if (!value || typeof value !== "object") return false;
   const payload = value as Partial<LessonPayload>;
@@ -147,6 +182,23 @@ export function localLearningDate(date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+export function getLocalMonday(date = new Date()): Date {
+  const monday = new Date(date);
+  const difference = (monday.getDay() === 0 ? -6 : 1) - monday.getDay();
+  monday.setDate(monday.getDate() + difference);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+export function missionFromAssignment(
+  assignment: WeeklyMoneyMission,
+): MoneyMissionTemplate | null {
+  if (Array.isArray(assignment.money_mission_templates)) {
+    return assignment.money_mission_templates[0] ?? null;
+  }
+  return assignment.money_mission_templates;
 }
 
 function shiftDate(date: Date, days: number): Date {

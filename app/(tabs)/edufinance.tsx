@@ -1,16 +1,22 @@
+import { WeeklyMoneyMissionCard } from "@/components/weekly-money-mission-card";
 import {
   computeLearningStreak,
+  getLocalMonday,
   localLearningDate,
+  missionFromAssignment,
   type LearningModuleType,
   type LearningPath,
+  type MoneyMissionTemplate,
+  type WeeklyMoneyMission,
 } from "@/types/learning";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Modal,
   RefreshControl,
   ScrollView,
@@ -69,32 +75,28 @@ const PATH_THEMES: Record<string, PathTheme> = {
   },
 };
 
-function getMonday(date: Date): Date {
-  const result = new Date(date);
-  const day = result.getDay();
-  const difference = (day === 0 ? -6 : 1) - day;
-  result.setDate(result.getDate() + difference);
-  result.setHours(0, 0, 0, 0);
-  return result;
-}
-
 export default function EduFinanceScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { openGoal } = useLocalSearchParams<{ openGoal?: string }>();
-  const weekStart = useMemo(() => localLearningDate(getMonday(new Date())), []);
+  const [weekStart, setWeekStart] = useState(() =>
+    localLearningDate(getLocalMonday(new Date())),
+  );
   const [paths, setPaths] = useState<LearningPathRow[]>([]);
   const [completedModuleIds, setCompletedModuleIds] = useState<Set<string>>(
     new Set(),
   );
   const [streakCount, setStreakCount] = useState(0);
+  const [weeklyMissions, setWeeklyMissions] = useState<WeeklyMoneyMission[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [showMissionHistory, setShowMissionHistory] = useState(false);
   const [goalModalVisible, setGoalModalVisible] = useState(false);
   const [newGoalTitle, setNewGoalTitle] = useState("");
   const [newGoalNotes, setNewGoalNotes] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingGoal, setSavingGoal] = useState(false);
+  const [savingMission, setSavingMission] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadLearning = useCallback(async () => {
@@ -108,8 +110,21 @@ export default function EduFinanceScreen() {
 
       const streakCutoff = new Date();
       streakCutoff.setDate(streakCutoff.getDate() - 90);
+      const currentWeekStart = localLearningDate(getLocalMonday(new Date()));
+      setWeekStart(currentWeekStart);
 
-      const [pathResult, progressResult, streakResult, goalResult] =
+      const { error: assignmentError } = await supabase.rpc(
+        "assign_weekly_money_mission",
+      );
+      if (assignmentError) throw assignmentError;
+
+      const [
+        pathResult,
+        progressResult,
+        streakResult,
+        goalResult,
+        missionResult,
+      ] =
         await Promise.all([
           supabase
             .from("learning_paths")
@@ -135,14 +150,23 @@ export default function EduFinanceScreen() {
               "id, user_id, title, notes, week_start, completed, created_at",
             )
             .eq("user_id", userId)
-            .eq("week_start", weekStart)
+            .eq("week_start", currentWeekStart)
             .order("created_at", { ascending: false }),
+          supabase
+            .from("user_weekly_missions")
+            .select(
+              "id, user_id, mission_id, week_start, completed_at, created_at, money_mission_templates(id, slug, title, summary, why_it_helps, steps, category, estimated_minutes, action_label, action_trigger, rotation_order, reviewed_at, money_mission_sources(sort_order, evidence_note, content_sources(id, source_key, title, authors, publisher, publication_year, source_type, url, doi, jurisdiction, summary, limitations, reviewed_at)))",
+            )
+            .eq("user_id", userId)
+            .order("week_start", { ascending: false })
+            .limit(6),
         ]);
 
       if (pathResult.error) throw pathResult.error;
       if (progressResult.error) throw progressResult.error;
       if (streakResult.error) throw streakResult.error;
       if (goalResult.error) throw goalResult.error;
+      if (missionResult.error) throw missionResult.error;
 
       const nextPaths = (pathResult.data || []).map((path) => ({
         ...path,
@@ -158,6 +182,9 @@ export default function EduFinanceScreen() {
       setStreakCount(
         computeLearningStreak((streakResult.data || []).map((row) => row.date)),
       );
+      setWeeklyMissions(
+        (missionResult.data || []) as unknown as WeeklyMoneyMission[],
+      );
       setGoals((goalResult.data || []) as Goal[]);
     } catch (loadError) {
       console.error("Learning dashboard load failed", loadError);
@@ -165,13 +192,20 @@ export default function EduFinanceScreen() {
     } finally {
       setLoading(false);
     }
-  }, [weekStart]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       void loadLearning();
     }, [loadLearning]),
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") void loadLearning();
+    });
+    return () => subscription.remove();
+  }, [loadLearning]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -250,6 +284,71 @@ export default function EduFinanceScreen() {
     }
   }, []);
 
+  const openMissionAction = useCallback(
+    (mission: MoneyMissionTemplate) => {
+      if (mission.action_trigger === "add_transaction") {
+        router.push("/add-transaction");
+        return;
+      }
+      if (mission.action_trigger === "budgets") {
+        router.push("/budgets");
+        return;
+      }
+      if (mission.action_trigger === "goal") {
+        setGoalModalVisible(true);
+        return;
+      }
+      if (mission.action_trigger === "home") {
+        router.push("/(tabs)");
+      }
+    },
+    [router],
+  );
+
+  const toggleWeeklyMission = useCallback(
+    async (assignment: WeeklyMoneyMission) => {
+      const nextCompleted = !assignment.completed_at;
+      const optimisticCompletedAt = nextCompleted
+        ? new Date().toISOString()
+        : null;
+
+      setSavingMission(true);
+      setError(null);
+      setWeeklyMissions((current) =>
+        current.map((row) =>
+          row.id === assignment.id
+            ? { ...row, completed_at: optimisticCompletedAt }
+            : row,
+        ),
+      );
+
+      try {
+        const { error: updateError } = await supabase.rpc(
+          "set_weekly_money_mission_completion",
+          {
+            p_assignment_id: assignment.id,
+            p_completed: nextCompleted,
+          },
+        );
+        if (updateError) throw updateError;
+        await loadLearning();
+      } catch (updateError) {
+        console.error("Weekly money mission update failed", updateError);
+        setWeeklyMissions((current) =>
+          current.map((row) =>
+            row.id === assignment.id
+              ? { ...row, completed_at: assignment.completed_at }
+              : row,
+          ),
+        );
+        setError("Could not update your weekly mission. Please try again.");
+      } finally {
+        setSavingMission(false);
+      }
+    },
+    [loadLearning],
+  );
+
   const totalModules = paths.reduce(
     (sum, path) => sum + path.learning_modules.length,
     0,
@@ -263,6 +362,15 @@ export default function EduFinanceScreen() {
   );
   const nextPath = paths.find((path) =>
     path.learning_modules.some((module) => !completedModuleIds.has(module.id)),
+  );
+  const currentWeeklyMission =
+    weeklyMissions.find((assignment) => assignment.week_start === weekStart) ??
+    weeklyMissions[0];
+  const currentMission = currentWeeklyMission
+    ? missionFromAssignment(currentWeeklyMission)
+    : null;
+  const missionHistory = weeklyMissions.filter(
+    (assignment) => assignment.id !== currentWeeklyMission?.id,
   );
 
   return (
@@ -317,6 +425,102 @@ export default function EduFinanceScreen() {
         </View>
 
         {error ? <Text selectable style={styles.errorText}>{error}</Text> : null}
+
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionHeaderText}>
+            <Text style={styles.sectionTitle}>Weekly money mission</Text>
+            <Text selectable style={styles.sectionSubtitle}>
+              One practical, research-linked action. A new mission arrives Monday.
+            </Text>
+          </View>
+          <View style={styles.mondayBadge}>
+            <Ionicons name="calendar-outline" size={13} color="#087D65" />
+            <Text style={styles.mondayBadgeText}>MONDAY</Text>
+          </View>
+        </View>
+
+        {loading ? (
+          <View style={styles.missionLoadingCard}>
+            <ActivityIndicator color={PRIMARY} />
+            <Text selectable style={styles.missionLoadingText}>
+              Preparing this week&apos;s mission…
+            </Text>
+          </View>
+        ) : currentWeeklyMission && currentMission ? (
+          <>
+            <WeeklyMoneyMissionCard
+              assignment={currentWeeklyMission}
+              mission={currentMission}
+              busy={savingMission}
+              onAction={openMissionAction}
+              onToggleComplete={(assignment) =>
+                void toggleWeeklyMission(assignment)
+              }
+            />
+            {missionHistory.length ? (
+              <View style={styles.historyCard}>
+                <TouchableOpacity
+                  style={styles.historyHeader}
+                  onPress={() =>
+                    setShowMissionHistory((current) => !current)
+                  }
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showMissionHistory }}
+                >
+                  <View style={styles.historyHeaderText}>
+                    <Text style={styles.historyTitle}>Mission history</Text>
+                    <Text selectable style={styles.historySubtitle}>
+                      {missionHistory.length} previous week
+                      {missionHistory.length === 1 ? "" : "s"} saved
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={showMissionHistory ? "chevron-up" : "chevron-down"}
+                    size={18}
+                    color="#526C66"
+                  />
+                </TouchableOpacity>
+                {showMissionHistory ? (
+                  <View style={styles.historyList}>
+                    {missionHistory.map((assignment) => {
+                      const mission = missionFromAssignment(assignment);
+                      if (!mission) return null;
+                      const completed = Boolean(assignment.completed_at);
+                      return (
+                        <View key={assignment.id} style={styles.historyRow}>
+                          <Ionicons
+                            name={
+                              completed
+                                ? "checkmark-circle"
+                                : "ellipse-outline"
+                            }
+                            size={20}
+                            color={completed ? "#138A6C" : "#8A9A96"}
+                          />
+                          <View style={styles.historyTextBlock}>
+                            <Text selectable style={styles.historyMissionTitle}>
+                              {mission.title}
+                            </Text>
+                            <Text selectable style={styles.historyWeek}>
+                              Week of {assignment.week_start} · {completed ? "Completed" : "Not completed"}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </>
+        ) : (
+          <View style={styles.missionLoadingCard}>
+            <Ionicons name="cloud-offline-outline" size={24} color="#6C817D" />
+            <Text selectable style={styles.missionLoadingText}>
+              This week&apos;s mission is unavailable. Pull down to retry.
+            </Text>
+          </View>
+        )}
 
         <View style={styles.sectionHeader}>
           <View>
@@ -436,7 +640,7 @@ export default function EduFinanceScreen() {
         <View style={styles.goalCard}>
           <View style={styles.goalHeader}>
             <View>
-              <Text style={styles.sectionTitle}>This week&apos;s money action</Text>
+              <Text style={styles.sectionTitle}>Personal money goals</Text>
               <Text style={styles.goalWeek}>Week of {weekStart}</Text>
             </View>
             <TouchableOpacity
@@ -484,7 +688,7 @@ export default function EduFinanceScreen() {
             </View>
           ) : (
             <Text selectable style={styles.noGoalText}>
-              Choose one small action from a lesson and make it visible here.
+              Add your own goal alongside the curated weekly mission.
             </Text>
           )}
         </View>
@@ -562,9 +766,24 @@ const styles = StyleSheet.create({
   heroProgressText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
   errorText: { color: "#A33D3D", fontSize: 12, lineHeight: 18, textAlign: "center" },
   sectionHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12, paddingTop: 6 },
+  sectionHeaderText: { flex: 1 },
   sectionTitle: { color: INK, fontSize: 16, fontWeight: "800" },
   sectionSubtitle: { color: "#667C77", fontSize: 11, paddingTop: 3 },
   nextBadge: { color: "#087D65", fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  mondayBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999, backgroundColor: "#DDF5ED" },
+  mondayBadgeText: { color: "#087D65", fontSize: 8, fontWeight: "900", letterSpacing: 0.6 },
+  missionLoadingCard: { minHeight: 120, alignItems: "center", justifyContent: "center", gap: 9, padding: 20, borderRadius: 18, backgroundColor: "#FFFFFF", borderCurve: "continuous" },
+  missionLoadingText: { color: "#667C77", fontSize: 10, lineHeight: 16, textAlign: "center" },
+  historyCard: { borderRadius: 16, backgroundColor: "#FFFFFF", overflow: "hidden", borderCurve: "continuous" },
+  historyHeader: { flexDirection: "row", alignItems: "center", padding: 14 },
+  historyHeaderText: { flex: 1 },
+  historyTitle: { color: INK, fontSize: 12, fontWeight: "800" },
+  historySubtitle: { color: "#768A85", fontSize: 9, paddingTop: 2 },
+  historyList: { gap: 1, paddingHorizontal: 10, paddingBottom: 10 },
+  historyRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 10, borderRadius: 12, backgroundColor: "#F4F8F6" },
+  historyTextBlock: { flex: 1 },
+  historyMissionTitle: { color: INK, fontSize: 10, lineHeight: 15, fontWeight: "700" },
+  historyWeek: { color: "#7A8E89", fontSize: 8, paddingTop: 2, fontVariant: ["tabular-nums"] },
   loadingState: { minHeight: 330, alignItems: "center", justifyContent: "center" },
   pathCard: { padding: 16, borderRadius: 18, backgroundColor: "#FFFFFF", borderCurve: "continuous", boxShadow: "0 2px 8px rgba(5, 34, 36, 0.06)" },
   pathTopRow: { flexDirection: "row", alignItems: "center" },
