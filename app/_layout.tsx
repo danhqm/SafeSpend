@@ -60,6 +60,26 @@ export default function RootLayout() {
             headerBackTitle: "Home",
           }}
         />
+        <Stack.Screen
+          name="accounts"
+          options={{ headerShown: true, title: "Accounts", headerBackTitle: "Home" }}
+        />
+        <Stack.Screen
+          name="add-account"
+          options={{
+            headerShown: true,
+            title: "Add Account",
+            presentation: "modal",
+          }}
+        />
+        <Stack.Screen
+          name="transfer"
+          options={{
+            headerShown: true,
+            title: "Record Transfer",
+            presentation: "modal",
+          }}
+        />
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />

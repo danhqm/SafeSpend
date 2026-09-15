@@ -1,10 +1,12 @@
 import {
   formatCategory,
   TRANSACTION_CATEGORIES,
+  type FinancialAccount,
   type LedgerTransaction,
   type ReceiptItem,
   type TransactionCategory,
 } from "@/types/finance";
+import { AccountPicker } from "@/components/account-picker";
 import { authenticatedApiFetch } from "@/utils/api";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
@@ -33,6 +35,7 @@ type ReceiptDraft = {
   total_amount: number | string;
   receipt_date: string;
   category: TransactionCategory;
+  account_id: string | null;
   items: ReceiptItem[];
   image_url: string | null;
   status: "draft";
@@ -64,6 +67,7 @@ export default function ReceiptScanner() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ReceiptDraft | null>(null);
   const [transactions, setTransactions] = useState<LedgerTransaction[]>([]);
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
   const [viewAllVisible, setViewAllVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -72,22 +76,31 @@ export default function ReceiptScanner() {
     const userId = authData.user?.id;
     if (!userId) return;
 
-    const { data, error: queryError } = await supabase
-      .from("transactions")
-      .select(
-        "id, user_id, receipt_id, transaction_type, amount, currency, occurred_on, merchant_name, category, notes, source, status, created_at, receipts(items, image_url)",
-      )
-      .eq("user_id", userId)
-      .order("occurred_on", { ascending: false })
-      .order("created_at", { ascending: false });
+    const [transactionResult, accountResult] = await Promise.all([
+      supabase
+        .from("transactions")
+        .select(
+          "id, user_id, receipt_id, account_id, transaction_type, amount, currency, occurred_on, merchant_name, category, notes, source, status, created_at, receipts(items, image_url), financial_accounts(name)",
+        )
+        .eq("user_id", userId)
+        .order("occurred_on", { ascending: false })
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("financial_accounts")
+        .select("id, user_id, name, account_type, opening_balance, currency, is_archived, created_at")
+        .eq("user_id", userId)
+        .eq("is_archived", false)
+        .order("created_at"),
+    ]);
 
-    if (queryError) {
-      console.error("Transaction load failed", queryError);
+    if (transactionResult.error || accountResult.error) {
+      console.error("Transaction load failed", transactionResult.error || accountResult.error);
       setError("Could not load your transactions.");
       return;
     }
 
-    const rows = (data || []) as unknown as LedgerTransaction[];
+    const rows = (transactionResult.data || []) as unknown as LedgerTransaction[];
+    setAccounts((accountResult.data || []) as unknown as FinancialAccount[]);
     setTransactions(rows.filter((row) => row.status === "posted"));
 
     if (!draft) {
@@ -102,6 +115,7 @@ export default function ReceiptScanner() {
           total_amount: pending.amount,
           receipt_date: pending.occurred_on,
           category: pending.category,
+          account_id: pending.account_id,
           items: pending.receipts?.items ?? [],
           image_url: pending.receipts?.image_url ?? null,
           status: "draft",
@@ -158,7 +172,7 @@ export default function ReceiptScanner() {
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || "OCR failed");
       }
-      setDraft(payload.data as ReceiptDraft);
+      setDraft({ ...(payload.data as Omit<ReceiptDraft, "account_id">), account_id: null });
     } catch (scanError) {
       console.error("Receipt scan failed", scanError);
       setError(scanError instanceof Error ? scanError.message : "Receipt scan failed");
@@ -200,6 +214,7 @@ export default function ReceiptScanner() {
           p_amount: amount,
           p_occurred_on: draft.receipt_date,
           p_category: draft.category,
+          p_account_id: draft.account_id,
           p_items: draft.items,
           p_notes: null,
         },
@@ -259,6 +274,9 @@ export default function ReceiptScanner() {
           <Text style={styles.transactionMeta}>
             {transaction.occurred_on} · {formatCategory(transaction.category)}
             {transaction.receipt_id ? " · Receipt attached" : ""}
+            {transaction.financial_accounts?.name
+              ? ` · ${transaction.financial_accounts.name}`
+              : " · Unassigned"}
           </Text>
         </View>
         <Text
@@ -407,6 +425,13 @@ export default function ReceiptScanner() {
                 ))}
               </View>
             </ScrollView>
+
+            <Text style={styles.fieldLabel}>Account</Text>
+            <AccountPicker
+              accounts={accounts}
+              selectedId={draft.account_id}
+              onSelect={(accountId) => updateDraft("account_id", accountId)}
+            />
 
             {draft.items.length > 0 ? (
               <View style={styles.itemsBox}>

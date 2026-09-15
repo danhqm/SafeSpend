@@ -2,13 +2,16 @@ import {
   formatCategory,
   localDateString,
   TRANSACTION_CATEGORIES,
+  type FinancialAccount,
   type TransactionCategory,
   type TransactionType,
 } from "@/types/finance";
+import { AccountPicker } from "@/components/account-picker";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router/react-navigation";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -35,7 +38,28 @@ export default function AddTransactionScreen() {
   const [merchant, setMerchant] = useState("");
   const [category, setCategory] = useState<TransactionCategory>("OTHER");
   const [notes, setNotes] = useState("");
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const loadAccounts = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("financial_accounts")
+      .select("id, user_id, name, account_type, opening_balance, currency, is_archived, created_at")
+      .eq("is_archived", false)
+      .order("created_at");
+    if (error) {
+      console.error("Transaction account load failed", error);
+      return;
+    }
+    setAccounts((data || []) as unknown as FinancialAccount[]);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadAccounts();
+    }, [loadAccounts]),
+  );
 
   const categoryOptions = useMemo(
     () =>
@@ -82,6 +106,7 @@ export default function AddTransactionScreen() {
         merchant_name: merchant.trim() || null,
         category,
         notes: notes.trim() || null,
+        account_id: accountId,
         source: "manual",
         status: "posted",
       });
@@ -180,6 +205,13 @@ export default function AddTransactionScreen() {
               </TouchableOpacity>
             ))}
           </View>
+
+          <Text style={styles.label}>Account</Text>
+          <AccountPicker
+            accounts={accounts}
+            selectedId={accountId}
+            onSelect={setAccountId}
+          />
 
           <Text style={styles.label}>Notes</Text>
           <TextInput

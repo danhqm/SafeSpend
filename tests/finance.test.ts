@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   expenseEffect,
+  calculateAccountBalance,
   formatCategory,
   localDateString,
   monthDisplayName,
@@ -29,4 +30,36 @@ test("month helpers stay on local calendar boundaries", () => {
   assert.equal(shiftMonth("2026-01-01", -1), "2025-12-01");
   assert.equal(shiftMonth("2026-12-01", 1), "2027-01-01");
   assert.match(monthDisplayName("2026-09-01"), /September 2026/);
+});
+
+test("asset balances apply transactions and transfers in ledger direction", () => {
+  const balance = calculateAccountBalance(
+    { id: "bank", account_type: "bank", opening_balance: 1000 },
+    [
+      { account_id: "bank", transaction_type: "expense", amount: 120, status: "posted" },
+      { account_id: "bank", transaction_type: "income", amount: 500, status: "posted" },
+      { account_id: "bank", transaction_type: "refund", amount: 20, status: "posted" },
+      { account_id: "bank", transaction_type: "expense", amount: 999, status: "draft" },
+    ],
+    [
+      { from_account_id: "bank", to_account_id: "cash", amount: 100 },
+      { from_account_id: "cash", to_account_id: "bank", amount: 50 },
+    ],
+  );
+  assert.equal(balance, 1350);
+});
+
+test("credit card balances represent amount owed", () => {
+  const balance = calculateAccountBalance(
+    { id: "card", account_type: "credit_card", opening_balance: 300 },
+    [
+      { account_id: "card", transaction_type: "expense", amount: 80, status: "posted" },
+      { account_id: "card", transaction_type: "refund", amount: 10, status: "posted" },
+    ],
+    [
+      { from_account_id: "bank", to_account_id: "card", amount: 100 },
+      { from_account_id: "card", to_account_id: "cash", amount: 20 },
+    ],
+  );
+  assert.equal(balance, 290);
 });

@@ -1,11 +1,13 @@
 import {
   EXPENSE_CATEGORIES,
   formatCategory,
+  type FinancialAccount,
   type LedgerTransaction,
   type ReceiptItem,
   type TransactionCategory,
   type TransactionType,
 } from "@/types/finance";
+import { AccountPicker } from "@/components/account-picker";
 import { authenticatedApiFetch } from "@/utils/api";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
@@ -43,6 +45,8 @@ export default function TransactionDetailScreen() {
   const [merchant, setMerchant] = useState("");
   const [category, setCategory] = useState<TransactionCategory>("OTHER");
   const [notes, setNotes] = useState("");
+  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -67,24 +71,34 @@ export default function TransactionDetailScreen() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: loadError } = await supabase
-        .from("transactions")
-        .select(
-          "id, user_id, receipt_id, transaction_type, amount, currency, occurred_on, merchant_name, category, notes, source, status, created_at, receipts(items, image_url)",
-        )
-        .eq("id", transactionId)
-        .maybeSingle();
-      if (loadError) throw loadError;
-      if (!data) throw new Error("Transaction not found");
+      const [transactionResult, accountResult] = await Promise.all([
+        supabase
+          .from("transactions")
+          .select(
+            "id, user_id, receipt_id, account_id, transaction_type, amount, currency, occurred_on, merchant_name, category, notes, source, status, created_at, receipts(items, image_url)",
+          )
+          .eq("id", transactionId)
+          .maybeSingle(),
+        supabase
+          .from("financial_accounts")
+          .select("id, user_id, name, account_type, opening_balance, currency, is_archived, created_at")
+          .eq("is_archived", false)
+          .order("created_at"),
+      ]);
+      if (transactionResult.error) throw transactionResult.error;
+      if (accountResult.error) throw accountResult.error;
+      if (!transactionResult.data) throw new Error("Transaction not found");
 
-      const row = data as unknown as EditableTransaction;
+      const row = transactionResult.data as unknown as EditableTransaction;
       setTransaction(row);
+      setAccounts((accountResult.data || []) as unknown as FinancialAccount[]);
       setTransactionType(row.transaction_type);
       setAmount(Number(row.amount).toFixed(2));
       setDate(row.occurred_on);
       setMerchant(row.merchant_name ?? "");
       setCategory(row.category);
       setNotes(row.notes ?? "");
+      setAccountId(row.account_id);
     } catch (loadError) {
       console.error("Transaction load failed", loadError);
       setError("This transaction is unavailable or does not belong to your account.");
@@ -134,6 +148,7 @@ export default function TransactionDetailScreen() {
           p_amount: Math.round(parsedAmount * 100) / 100,
           p_occurred_on: date,
           p_category: category,
+          p_account_id: accountId,
           p_items: transaction.receipts?.items ?? [],
           p_notes: notes.trim() || null,
         });
@@ -148,6 +163,7 @@ export default function TransactionDetailScreen() {
             merchant_name: merchant.trim() || null,
             category,
             notes: notes.trim() || null,
+            account_id: accountId,
           })
           .eq("id", transaction.id);
         if (saveError) throw saveError;
@@ -316,6 +332,13 @@ export default function TransactionDetailScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              <Text style={styles.label}>Account</Text>
+              <AccountPicker
+                accounts={accounts}
+                selectedId={accountId}
+                onSelect={setAccountId}
+              />
 
               <Text style={styles.label}>Notes</Text>
               <TextInput

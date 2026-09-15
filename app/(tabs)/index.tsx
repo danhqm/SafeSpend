@@ -656,6 +656,13 @@ export default function HomeScreen() {
               <Ionicons name="receipt-outline" size={22} color="#093030" />
               <Text style={styles.ctaText}>Scan Receipt</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => router.push("/accounts")}
+            >
+              <Ionicons name="wallet-outline" size={22} color="#093030" />
+              <Text style={styles.ctaText}>Accounts</Text>
+            </TouchableOpacity>
           </View>
 
           <Text style={styles.sectionTitle}>Your Spending Pattern</Text>
