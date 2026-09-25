@@ -1,1078 +1,267 @@
-import { supabase } from "@/utils/supabase";
-import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import React, { useCallback, useState } from "react";
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect, useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import { supabase } from "../utils/supabase";
 import { authenticatedApiFetch } from "../utils/api";
 import { addSignedReceiptImage } from "../utils/receipt-images";
+import { calculateClaims, money, parseAmount, TAX_RULES, TaxClaim, validDate } from "../types/tax";
 
-const TABS = [
-  "Summary",
-  "Personal",
-  "Medical & Care",
-  "Education & Childcare",
-  "Lifestyle",
-  "Insurance",
-  "Others",
-];
-
-const LHDN_LIMITS: Record<string, number> = {
-  Lifestyle: 2500,
-  "Medical & Care": 10000,
-  "Education & Childcare": 7000,
-  Insurance: 7000,
-  Personal: 9000,
-  Others: 2500,
-};
-
-const LHDN_CONTENT: Record<string, any[]> = {
-  Personal: [
-    {
-      id: "asas_individu",
-      text: "Pelepasan asas untuk individu dan saudara tanggungan adalah sebanyak RM9,000.",
-    },
-    {
-      id: "pasangan_alimoni",
-      text: "Pelepasan untuk suami / isteri / bayaran alimoni kepada bekas isteri dihadkan kepada RM4,000.",
-    },
-    {
-      id: "pasangan_oku",
-      text: "Pelepasan tambahan sebanyak RM6,000 sahaja diberikan jika suami / isteri adalah orang kurang upaya.",
-    },
-    {
-      id: "anak_tanggungan",
-      text: "Pelepasan anak di bawah umur 18 tahun, 18 tahun dan ke atas yang masih belajar, dan anak kurang upaya.",
-    },
-  ],
-  "Medical & Care": [
-    {
-      id: "med_ibubapa",
-      text: "Perbelanjaan rawatan perubatan, keperluan khas atau penjaga untuk ibu bapa (Terhad RM8,000).",
-    },
-    {
-      id: "med_sokongan",
-      text: "Peralatan sokongan asas untuk kegunaan sendiri, pasangan, anak, atau ibu bapa yang kurang upaya (Terhad RM6,000).",
-    },
-    {
-      id: "med_oku",
-      text: "Pelepasan tambahan untuk individu yang kurang upaya (RM7,000 sahaja).",
-    },
-    {
-      id: "med_gabungan",
-      text: "Perbelanjaan perubatan penyakit serius, rawatan kesuburan, pemvaksinan, dan pemeriksaan penuh (Had gabungan terhad RM10,000).",
-    },
-  ],
-  "Education & Childcare": [
-    {
-      id: "edu_sendiri",
-      text: "Yuran pengajian (Sendiri) selain sarjana/PhD, atau sarjana/PhD, dan kursus peningkatan kemahiran (Terhad RM7,000).",
-    },
-    {
-      id: "edu_tadika",
-      text: "Yuran penghantaran anak berumur 6 tahun dan ke bawah ke taman asuhan / tadika berdaftar (Terhad RM3,000).",
-      info: "Syarat tuntutan:\n(i) Pusat Asuhan Kanak-kanak yang berdaftar\n(ii) Pra-Sekolah yang berdaftar\n(iii) Yuran untuk anak berumur 6 tahun dan ke bawah\n(iv) Hanya boleh dituntut oleh sama ada suami atau isteri",
-    },
-    {
-      id: "edu_sspn",
-      text: "Tabungan bersih dalam Skim Simpanan Pendidikan Nasional (SSPN) (Terhad RM8,000).",
-      info: "Syarat:\n(i) Suami isteri yang memilih taksiran berasingan, potongan hanya boleh dituntut oleh yang membuat simpanan.\n(ii) Pengeluaran tabung SSPN untuk pembiayaan kos pendidikan anak peringkat tinggi tidak diambilkira dalam pengiraan.\n(iii) Had maksimum RM8,000 terpakai walaupun mempunyai lebih daripada seorang anak.",
-    },
-  ],
-  Lifestyle: [
-    {
-      id: "life_asas",
-      text: "Gaya hidup asas – Perbelanjaan bahan bacaan, komputer peribadi, telefon pintar, tablet, dan bil internet (Terhad RM2,500).",
-      info: "Syarat kelayakan:\n(i) Pembelian buku/jurnal/majalah/surat khabar (Bukan bahan bacaan terlarang)\n(ii) Pembelian komputer peribadi, telefon pintar atau tablet (Bukan untuk kegunaan perniagaan)\n(iii) Bayaran bil bulanan untuk langganan internet (Atas nama sendiri)\n(iv) Bayaran yuran bagi apa-apa kursus peningkatan kemahiran",
-    },
-    {
-      id: "life_sukan",
-      text: "Gaya hidup tambahan – Pembelian peralatan sukan, sewa fasiliti, dan keahlian gimnasium (Terhad RM1,000).",
-      info: "Syarat kelayakan:\n(i) Pembelian peralatan sukan mengikut Akta Pembangunan Sukan 1997\n(ii) Bayaran sewa atau fi kemasukan ke fasiliti sukan\n(iii) Bayaran fi pendaftaran pertandingan sukan\n(iv) Bayaran fi keahlian gimnasium",
-    },
-    {
-      id: "life_susu",
-      text: "Pembelian peralatan penyusuan ibu untuk kegunaan sendiri bagi anak berumur 2 tahun dan ke bawah (Terhad RM1,000 setiap 2 tahun).",
-      info: "Syarat tuntutan:\n(i) Pembayar cukai wanita sahaja\n(ii) Mempunyai anak berumur sehingga 2 tahun\n(iii) Peralatan penyusuan yang layak: breast pump kit, ice pack, collection & storage equipment, cooler set/bag\n(iv) Sekali setiap 2 tahun taksiran",
-    },
-  ],
-  Insurance: [
-    {
-      id: "ins_nyawa_kwsp",
-      text: "Premium insurans nyawa & KWSP sukarela (Terhad RM3,000) serta caruman KWSP wajib (Terhad RM4,000). Jumlah: RM7,000.",
-    },
-    {
-      id: "ins_med_edu",
-      text: "Insurans pendidikan dan perubatan untuk diri sendiri, pasangan, atau anak (Terhad RM4,000).",
-    },
-    {
-      id: "ins_prs",
-      text: "Skim persaraan swasta dan anuiti tertangguh (Terhad RM3,000).",
-      info: "Pelepasan tidak melebihi RM3,000 dibenarkan bagi caruman yang dibuat kepada skim persaraan swasta yang diluluskan oleh Suruhanjaya Sekuriti dan jumlah pembayaran anuiti tertangguh. Berkuatkuasa mulai tahun taksiran 2012 hingga tahun taksiran 2025.",
-    },
-    {
-      id: "ins_perkeso",
-      text: "Caruman kepada Pertubuhan Keselamatan Sosial (PERKESO) (Terhad RM350).",
-    },
-  ],
-  Others: [
-    {
-      id: "lain_ev",
-      text: "Pemasangan, sewaan, atau pembelian kemudahan pengecasan kenderaan elektrik (EV) (Terhad RM2,500).",
-    },
-    {
-      id: "lain_rumah",
-      text: "Bayaran faedah pinjaman rumah kediaman pertama (Berdasarkan kelayakan harga rumah).",
-      info: "Perjanjian jual beli hendaklah disempurnakan dalam tempoh 1 Januari 2025 hingga 31 Disember 2027.",
-    },
-    {
-      id: "lain_umrah",
-      text: "Levi pelepasan bagi perjalanan umrah / tujuan keagamaan lain.",
-      info: "Terhad 2 kali perjalanan seumur hidup.",
-    },
-  ],
-};
+type Receipt = { id: string; merchant_name: string; total_amount: number; receipt_date: string; image_url: string | null; items: {name: string; price: number}[] | null };
+type Draft = TaxClaim & { amountText: string; eligibleText: string; dateText: string };
+const emptyClaim = (year: number): Draft => ({
+  id: "", tax_year: year, rule_id: null, rule_version: null, receipt_id: null,
+  title: "", amount: 0, eligible_amount: 0, status: "needs_review", beneficiary: "Self",
+  evidence_note: "", eligibility_confirmed: false, occurred_on: null,
+  amountText: "", eligibleText: "", dateText: "",
+});
+const errorMessage = (e: unknown) => e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? String(e.message) : "Please try again.";
 
 export default function LHDNClaimScreen() {
   const router = useRouter();
-  const [fullImage, setFullImage] = useState<
-    { id: string; image_url: string } | any | null
-  >(null);
-  const [activeTab, setActiveTab] = useState(TABS[0]); // Starts on "Summary"
-  const [loading, setLoading] = useState(false);
-  const [scanningId, setScanningId] = useState<string | null>(null);
+  const [year, setYear] = useState(2025);
+  const [claims, setClaims] = useState<TaxClaim[]>([]);
+  const [userId, setUserId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [image, setImage] = useState<string | null>(null);
+  const [picker, setPicker] = useState(false);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [selectedItems, setSelectedItems] = useState<number[]>([]);
+  const [tab, setTab] = useState("Claims");
+  const [rulePicker, setRulePicker] = useState(false);
 
-  const [viewingModal, setViewingModal] = useState(false);
-  const [savedReceipts, setSavedReceipts] = useState<any[]>([]);
-  const [fetchingReceipts, setFetchingReceipts] = useState(false);
-
-  const [infoModalVisible, setInfoModalVisible] = useState(false);
-  const [currentInfoText, setCurrentInfoText] = useState("");
-
-  const [dashboardLoading, setDashboardLoading] = useState(false);
-  const [totalRelief, setTotalRelief] = useState(0);
-  const [categoryTotals, setCategoryTotals] = useState<
-    Record<string, { spent: number; eligible: number; limit: number }>
-  >({});
-
-  const showInfo = (infoText: string) => {
-    setCurrentInfoText(infoText);
-    setInfoModalVisible(true);
-  };
-
-  const calculateTaxRelief = useCallback(async () => {
-    setDashboardLoading(true);
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) return;
-
-      const { data: receipts, error } = await supabase
-        .from("receipts")
-        .select("total_amount, lhdn_category, ai_validation_passed")
-        .eq("user_id", userId)
-        .eq("tax_year", new Date().getFullYear())
-        .not("lhdn_category", "is", null);
-
-      if (error) throw error;
-
-      let newTotalRelief = 0;
-      let newCategoryTotals: Record<
-        string,
-        { spent: number; eligible: number; limit: number }
-      > = {};
-
-      Object.keys(LHDN_LIMITS).forEach((cat) => {
-        newCategoryTotals[cat] = {
-          spent: 0,
-          eligible: 0,
-          limit: LHDN_LIMITS[cat],
-        };
-      });
-
-      if (receipts) {
-        receipts.forEach((receipt) => {
-          if (
-            receipt.ai_validation_passed !== false &&
-            receipt.lhdn_category &&
-            newCategoryTotals[receipt.lhdn_category]
-          ) {
-            newCategoryTotals[receipt.lhdn_category].spent +=
-              Number(receipt.total_amount) || 0;
-          }
-        });
-
-        Object.keys(newCategoryTotals).forEach((cat) => {
-          const catData = newCategoryTotals[cat];
-          catData.eligible = Math.min(catData.spent, catData.limit);
-          newTotalRelief += catData.eligible;
-        });
+      const {data: auth, error: authError} = await supabase.auth.getUser();
+      if (authError || !auth.user) throw new Error("Please sign in again.");
+      setUserId(auth.user.id);
+      const all: TaxClaim[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const {data, error: queryError} = await supabase.from("tax_claims").select("*")
+          .eq("user_id", auth.user.id).order("created_at", {ascending:false}).order("id").range(offset,offset+499);
+        if (queryError) throw queryError;
+        all.push(...(data || []));
+        if (!data || data.length < 500) break;
       }
-
-      setCategoryTotals(newCategoryTotals);
-      setTotalRelief(newTotalRelief);
-    } catch (err) {
-      console.error("Dashboard calculation error:", err);
-    } finally {
-      setDashboardLoading(false);
-    }
+      setClaims(all);
+    } catch (e) { setError(errorMessage(e)); }
+    finally { setLoading(false); }
   }, []);
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
+  const visible = claims.filter(c=>c.tax_year === year);
+  const calculation = calculateClaims(claims, year);
+  const pending = visible.filter(c=>c.status !== "confirmed" && c.status !== "rejected").length;
+  const rule = TAX_RULES.find(r=>r.id === draft?.rule_id);
+  const years = [...new Set([2025,2026,...claims.map(c=>c.tax_year)])].sort((a,b)=>b-a);
+  const patch = (values: Partial<Draft>) => setDraft(d=>d ? {...d,...values,eligibility_confirmed:false} : null);
 
-  useEffect(() => {
-    if (activeTab !== "Summary") return;
-    const timer = setTimeout(() => {
-      void calculateTaxRelief();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [activeTab, calculateTaxRelief]);
-
-  const pickImageForCategory = async (subCategoryItem: any) => {
-    try {
-      const permissionResult =
-        await ImagePicker.requestCameraPermissionsAsync();
-      if (!permissionResult.granted) {
-        Alert.alert(
-          "Permission Required",
-          "Camera access is needed to scan receipts.",
-        );
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        base64: true,
-        quality: 0.2,
-      });
-      if (!result.canceled && result.assets[0].base64) {
-        await uploadLHDNReceipt(result.assets[0].base64, subCategoryItem);
-      }
-    } catch (error) {
-      console.error("Camera error:", error);
-      Alert.alert("Error", "Could not open camera.");
+  const openClaim = async (claim: TaxClaim) => {
+    setReceipt(null); setImage(null); setSelectedItems(claim.eligible_items || []); setRulePicker(false);
+    setDraft({...claim, amountText:String(claim.amount), eligibleText:String(claim.eligible_amount),dateText:claim.occurred_on || ""});
+    if (claim.receipt_id) {
+      setBusy(true);
+      try {
+        const {data,error: e} = await supabase.from("receipts").select("*").eq("id",claim.receipt_id).eq("user_id",userId).single();
+        if(e) throw e;
+        setReceipt(data);
+      } catch(e) { Alert.alert("Could not load evidence",errorMessage(e)); }
+      finally { setBusy(false); }
     }
   };
-
-  const uploadLHDNReceipt = async (base64: string, subCategoryItem: any) => {
-    setLoading(true);
-    setScanningId(subCategoryItem.id);
-    try {
-      const res = await authenticatedApiFetch("/api/ocr", {
-        method: "POST",
-        body: JSON.stringify({
-          imageBase64: base64,
-          lhdnCategory: activeTab,
-          lhdnSubcategory: subCategoryItem.id,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        Alert.alert("Scan Failed", data.error || "Could not process receipt.");
-      } else {
-        if (data.data.ai_validation_passed === false) {
-          Alert.alert(
-            "⚠️ Potential Mismatch",
-            "Receipt saved, but our AI flagged that the items might not qualify for this specific LHDN category. Please double-check your claim!",
-            [{ text: "I'll review it" }],
-          );
-        } else {
-          Alert.alert("Success!", "Receipt saved to your LHDN claims.");
-          if (activeTab === "Summary") calculateTaxRelief();
-        }
+  const chooseRule = (id: string) => {
+    const selected = TAX_RULES.find(r=>r.id===id)!;
+    patch({rule_id:id,rule_version:draft?.tax_year===selected.year ? selected.version:null,
+      ...(!draft?.title.trim() ? {title:selected.title}:{}),
+      ...(selected.mode==="fixed" ? {amountText:String(selected.cap),eligibleText:String(selected.cap)} : {}),
+    });
+    setRulePicker(false);
+  };
+  const save = async (status: string) => {
+    if(!draft || busy) return;
+    const amount = parseAmount(draft.amountText);
+    const eligible = parseAmount(draft.eligibleText || "0");
+    if(!draft.title.trim() || amount===null || eligible===null || eligible>amount) {
+      Alert.alert("Check the amounts","Enter a title and valid amounts with up to two decimal places. Eligible amount cannot exceed the recorded amount."); return;
+    }
+    if (draft.dateText && !validDate(draft.dateText,draft.tax_year)) {
+      Alert.alert("Check the date","Use a real date in the selected assessment year, in YYYY-MM-DD format."); return;
+    }
+    if(status==="confirmed") {
+      if(!rule || draft.tax_year!==rule.year) { Alert.alert("Rules not reviewed","You can save this as a draft. Confirmed estimates are currently available for YA2025."); return; }
+      if(!draft.eligibility_confirmed || !draft.beneficiary.trim()) { Alert.alert("Review eligibility","Check the eligibility statement and enter the beneficiary."); return; }
+      if(rule.mode!=="fixed" && (!draft.dateText || eligible<=0 || (!draft.receipt_id && !draft.evidence_note.trim()))) {
+        Alert.alert("Add supporting details","Enter the payment date, eligible amount and a reference to your supporting document."); return;
       }
-    } catch (err) {
-      console.error("Upload error:", err);
-      Alert.alert("Error", "Server connection failed.");
-    } finally {
-      setLoading(false);
-      setScanningId(null);
     }
-  };
-
-  const fetchReceiptsForTab = async () => {
-    setViewingModal(true);
-    setFetchingReceipts(true);
+    setBusy(true);
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      const userId = authData?.user?.id;
-      if (!userId) return;
-      const { data, error } = await supabase
-        .from("receipts")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("lhdn_category", activeTab)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      const receiptsWithSignedImages = await Promise.all(
-        (data || []).map(addSignedReceiptImage),
-      );
-      setSavedReceipts(receiptsWithSignedImages);
-    } catch (err) {
-      console.error("Fetch error:", err);
-    } finally {
-      setFetchingReceipts(false);
-    }
+      const payload = {user_id:userId,tax_year:draft.tax_year,rule_id:draft.rule_id,
+        rule_version:rule && draft.tax_year===rule.year ? rule.version:null,receipt_id:draft.receipt_id,
+        title:draft.title.trim(),amount,eligible_amount:eligible,status,beneficiary:draft.beneficiary.trim(),
+        evidence_note:draft.evidence_note.trim(),eligibility_confirmed:status==="confirmed",
+        occurred_on:draft.dateText || null,eligible_items:selectedItems};
+      const query = draft.id
+        ? supabase.from("tax_claims").update(payload).eq("id",draft.id).eq("user_id",userId).eq("updated_at",draft.updated_at)
+        : supabase.from("tax_claims").insert(payload);
+      const {data,error:e} = await query.select("id").single();
+      if(e || !data) throw e || new Error("This claim changed on another device. Reload and review it again.");
+      setDraft(null); setReceipt(null); await load();
+    } catch(e) { Alert.alert("Could not save claim",errorMessage(e)); }
+    finally { setBusy(false); }
   };
-
-  const deleteReceipt = async (receiptId: string) => {
-    Alert.alert(
-      "Delete Receipt",
-      "Are you sure you want to delete this receipt? This action cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const response = await authenticatedApiFetch(
-                `/api/receipts?id=${encodeURIComponent(receiptId)}`,
-                { method: "DELETE" },
-              );
-              if (!response.ok) throw new Error("Receipt deletion failed");
-
-              setSavedReceipts((prev) =>
-                prev.filter((r) => r.id !== receiptId),
-              );
-
-              setFullImage(null);
-            } catch (err) {
-              console.error("Delete error:", err);
-              Alert.alert("Error", "Could not delete the receipt.");
-            }
-          },
-        },
-      ],
-    );
+  const scan = async (camera: boolean) => {
+    setBusy(true);
+    try {
+      if(camera) {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if(!permission.granted) throw new Error("Camera permission is needed to scan a receipt.");
+      }
+      const options = {base64:true,quality:0.8,mediaTypes:["images"] as ImagePicker.MediaType[]};
+      const result = camera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
+      if(result.canceled) return;
+      const base64 = result.assets[0].base64;
+      if(!base64) throw new Error("Could not read this image.");
+      const response = await authenticatedApiFetch("/api/ocr", {method:"POST",body:JSON.stringify({imageBase64:base64,lhdnCategory:"Tax review"})});
+      const body = await response.json();
+      if(!response.ok || !body.success) throw new Error(body.error || "Receipt scan failed.");
+      await load();
+      const {data,error:e} = await supabase.from("tax_claims").select("*").eq("receipt_id",body.data.id).eq("user_id",userId).single();
+      if(e) throw e;
+      setYear(data.tax_year); await openClaim(data);
+    } catch(e) { Alert.alert("Could not scan receipt",errorMessage(e)); }
+    finally { setBusy(false); }
   };
-
-  const renderSummaryDashboard = () => {
-    if (dashboardLoading)
-      return (
-        <ActivityIndicator
-          size="large"
-          color="#00D09C"
-          style={{ marginTop: 50 }}
-        />
-      );
-
-    return (
-      <View style={styles.dashboardContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Estimated Tax Relief</Text>
-          <Text style={styles.summaryAmount}>
-            RM{" "}
-            {totalRelief.toLocaleString("en-MY", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </Text>
-          <Text style={styles.summarySubtitle}>
-            Based on your scanned receipts
-          </Text>
-        </View>
-
-        <Text style={styles.sectionTitle}>Relief Breakdown</Text>
-
-        {Object.keys(LHDN_LIMITS).map((category) => {
-          const data = categoryTotals[category] || {
-            spent: 0,
-            eligible: 0,
-            limit: LHDN_LIMITS[category],
-          };
-          const progressPercent =
-            data.limit > 0
-              ? Math.min((data.eligible / data.limit) * 100, 100)
-              : 0;
-          const isMaxed = data.eligible === data.limit && data.limit > 0;
-
-          return (
-            <View key={category} style={styles.categoryProgressRow}>
-              <View style={styles.categoryProgressHeader}>
-                <Text style={styles.categoryProgressName}>{category}</Text>
-                <Text style={styles.categoryProgressValues}>
-                  <Text
-                    style={[styles.eligibleText, isMaxed && styles.maxedText]}
-                  >
-                    RM{" "}
-                    {data.eligible.toLocaleString("en-MY", {
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 0,
-                    })}
-                  </Text>
-                  <Text style={styles.limitText}>
-                    {" "}
-                    / RM {data.limit.toLocaleString()}
-                  </Text>
-                </Text>
-              </View>
-              <View style={styles.progressBarBackground}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    { width: `${progressPercent}%` },
-                    isMaxed && styles.progressBarMaxed,
-                  ]}
-                />
-              </View>
-              {data.spent > data.limit && (
-                <Text style={styles.overSpentText}>
-                  <Ionicons name="information-circle" size={12} /> Spent RM{" "}
-                  {data.spent.toLocaleString()}, but limit is RM{" "}
-                  {data.limit.toLocaleString()}.
-                </Text>
-              )}
-            </View>
-          );
-        })}
-        <View style={{ height: 40 }} />
-      </View>
-    );
+  const showReceipts = async () => {
+    setBusy(true);
+    try {
+      const list: Receipt[] = [];
+      for(let offset=0;;offset+=500) {
+        const {data,error:e} = await supabase.from("receipts").select("id,merchant_name,total_amount,receipt_date,image_url,items")
+          .eq("user_id",userId).gte("receipt_date",year+"-01-01").lte("receipt_date",year+"-12-31")
+          .order("receipt_date",{ascending:false}).order("id").range(offset,offset+499);
+        if(e) throw e;
+        list.push(...(data||[])); if(!data || data.length<500) break;
+      }
+      setReceipts(list.filter(r=>!claims.some(c=>c.receipt_id===r.id))); setPicker(true);
+    } catch(e) { Alert.alert("Could not load receipts",errorMessage(e)); }
+    finally { setBusy(false); }
   };
-
-  return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <View style={styles.titleContainer}>
-          <Text style={styles.headerTitle}>LHDN</Text>
-          <Text style={styles.headerSubtitle}>Tax Relief</Text>
-        </View>
-        <TouchableOpacity style={styles.iconButton}>
-          <Ionicons
-            name="notifications-outline"
-            size={22}
-            color="#093030"
-            style={styles.bellIcon}
-          />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.whiteContainer}>
-        <View style={styles.tabWrapper}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabScrollContent}
-          >
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <TouchableOpacity
-                  key={tab}
-                  style={[styles.tabButton, isActive && styles.activeTabButton]}
-                  onPress={() => setActiveTab(tab)}
-                >
-                  <Text
-                    style={[styles.tabText, isActive && styles.activeTabText]}
-                  >
-                    {tab}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        <ScrollView
-          style={styles.contentScroll}
-          showsVerticalScrollIndicator={false}
-        >
-          {activeTab === "Summary" ? (
-            renderSummaryDashboard()
-          ) : (
-            <>
-              <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>{activeTab}</Text>
-              </View>
-
-              {LHDN_CONTENT[activeTab]?.map((item) => (
-                <View key={item.id} style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <Text style={styles.cardText}>{item.text}</Text>
-                    {item.info && (
-                      <TouchableOpacity
-                        style={styles.infoBadge}
-                        onPress={() => showInfo(item.info)}
-                      >
-                        <Ionicons
-                          name="information-circle"
-                          size={18}
-                          color="#4caf50"
-                        />
-                        <Text style={styles.infoBadgeText}>Info</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  <TouchableOpacity
-                    style={styles.scanActionButton}
-                    onPress={() => pickImageForCategory(item)}
-                    disabled={loading}
-                  >
-                    {scanningId === item.id ? (
-                      <>
-                        <ActivityIndicator size="small" color="#fff" />
-                        <Text style={styles.scanActionText}>Analyzing...</Text>
-                      </>
-                    ) : (
-                      <>
-                        <Ionicons name="camera" size={18} color="#fff" />
-                        <Text style={styles.scanActionText}>Scan</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ))}
-
-              <TouchableOpacity
-                style={styles.viewButton}
-                onPress={fetchReceiptsForTab}
-              >
-                <Ionicons name="receipt-outline" size={20} color="#fff" />
-                <Text style={styles.viewButtonText}>View Claimed Receipts</Text>
-              </TouchableOpacity>
-              <View style={{ height: 40 }} />
-            </>
-          )}
-        </ScrollView>
-      </View>
-
-      <Modal
-        visible={viewingModal}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{activeTab} Claims</Text>
-            <TouchableOpacity onPress={() => setViewingModal(false)}>
-              <Text style={styles.closeText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-
-          {fetchingReceipts ? (
-            <ActivityIndicator
-              size="large"
-              color="#00D09C"
-              style={{ marginTop: 40 }}
-            />
-          ) : savedReceipts.length === 0 ? (
-            <Text style={styles.emptyText}>
-              No receipts claimed for this category yet.
-            </Text>
-          ) : (
-            <ScrollView style={styles.modalScroll}>
-              {savedReceipts.map((r) => (
-                <TouchableOpacity
-                  key={r.id}
-                  style={styles.receiptCard}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    if (r.image_url) setFullImage(r);
-                  }}
-                >
-                  {r.image_url && (
-                    <Image
-                      source={{ uri: r.image_url }}
-                      style={styles.receiptImage}
-                      resizeMode="cover"
-                    />
-                  )}
-                  <View style={styles.receiptDetails}>
-                    <Text style={styles.receiptMerchant}>
-                      {r.merchant_name || "Unknown Merchant"}
-                    </Text>
-                    <Text style={styles.receiptAmount}>
-                      RM {Number(r.total_amount || 0).toFixed(2)}
-                    </Text>
-                    <Text style={styles.receiptDate}>
-                      {r.receipt_date || "Unknown Date"}
-                    </Text>
-                    {r.ai_validation_passed === false && (
-                      <Text style={styles.warningText}>
-                        ⚠️ AI Flag: May not match category
-                      </Text>
-                    )}
-                  </View>
-
-                  <TouchableOpacity
-                    style={{ padding: 10, justifyContent: "center" }}
-                    onPress={() => deleteReceipt(r.id)}
-                  >
-                    <Ionicons name="trash-outline" size={24} color="#FF6B6B" />
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-
-          {fullImage && (
-            <View style={styles.fullImageOverlay}>
-              <TouchableOpacity
-                style={styles.fullImageCloseButton}
-                onPress={() => setFullImage(null)}
-              >
-                <Ionicons name="close-circle" size={40} color="#fff" />
-              </TouchableOpacity>
-              <Image
-                source={{ uri: fullImage.image_url }}
-                style={styles.fullImage}
-                resizeMode="contain"
-              />
-
-              <TouchableOpacity
-                style={{
-                  position: "absolute",
-                  bottom: 50,
-                  backgroundColor: "#FF6B6B",
-                  paddingHorizontal: 30,
-                  paddingVertical: 15,
-                  borderRadius: 30,
-                  flexDirection: "row",
-                  alignItems: "center",
-                }}
-                onPress={() => deleteReceipt(fullImage.id)}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={20}
-                  color="#fff"
-                  style={{ marginRight: 8 }}
-                />
-                <Text
-                  style={{ color: "#fff", fontSize: 16, fontWeight: "bold" }}
-                >
-                  Delete Receipt
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </Modal>
-
-      <Modal visible={infoModalVisible} transparent={true} animationType="fade">
-        <View style={styles.infoModalOverlay}>
-          <View style={styles.infoModalCard}>
-            <View style={styles.infoModalHeader}>
-              <Ionicons name="information-circle" size={24} color="#4caf50" />
-              <Text style={styles.infoModalTitle}>Syarat Kelayakan</Text>
-            </View>
-
-            <ScrollView
-              style={{ maxHeight: 300 }}
-              showsVerticalScrollIndicator={false}
-            >
-              <Text style={styles.infoModalBody}>{currentInfoText}</Text>
-            </ScrollView>
-
-            <TouchableOpacity
-              style={styles.infoModalButton}
-              onPress={() => setInfoModalVisible(false)}
-            >
-              <Text style={styles.infoModalButtonText}>Faham (Understood)</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+  const viewImage = async () => {
+    if(!receipt) return;
+    setBusy(true);
+    try { const signed = await addSignedReceiptImage(receipt); setImage(signed.image_url); }
+    catch(e) { Alert.alert("Could not open receipt",errorMessage(e)); }
+    finally {setBusy(false);}
+  };
+  const button = (label:string,onPress:()=>void,secondary=false,disabled=busy) => (
+    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[s.button,secondary && s.secondary,disabled && s.disabled]}>
+      <Text style={[s.buttonText,secondary && s.secondaryText]}>{label}</Text>
+    </Pressable>
   );
+  const field = (label:string,value:string,onChangeText:(v:string)=>void,numeric=false) => (
+    <View style={s.field}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} value={value}
+      onChangeText={onChangeText} style={s.input} keyboardType={numeric ? "decimal-pad":"default"} editable={!busy}/></View>
+  );
+  return <SafeAreaView style={s.safe}>
+    <View style={s.header}>{button("Back",()=>router.back(),true)}<View><Text style={s.heading}>Tax relief</Text><Text style={s.sub}>Your annual claim tracker</Text></View></View>
+    <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <View style={s.row}>{years.map(y=><Pressable key={y} onPress={()=>setYear(y)} style={[s.chip,y===year && s.chipActive]} accessibilityRole="button"><Text>YA {y}</Text></Pressable>)}</View>
+      {year!==2025 && <Text style={s.notice}>Draft tracking only. Limits for YA {year} have not been reviewed, so no eligible total is shown.</Text>}
+      {error ? <View style={s.card}><Text style={s.notice}>Could not load tax claims: {error}</Text>{button("Retry",()=>void load())}</View> : loading ? <ActivityIndicator/> : <>
+        <View style={s.hero}><Text style={s.heroLabel}>Confirmed relief estimate · YA {year}</Text>
+          <Text style={s.total}>{calculation.available ? money(calculation.total) : "Awaiting reviewed rules"}</Text>
+          <Text style={s.heroLabel}>{pending} claim{pending===1?"":"s"} to review</Text>
+          <Text style={s.heroLabel}>Based on your confirmations. This is a reduction in taxable income, not a refund or LHDN approval.</Text></View>
+        <View style={s.row}>{button("Add claim",()=>{setDraft(emptyClaim(year));setReceipt(null);setSelectedItems([]);setRulePicker(false);})}{button("Use saved receipt",()=>void showReceipts(),true)}</View>
+        <View style={s.row}>{button("Scan receipt",()=>void scan(true),true)}{button("Choose photo",()=>void scan(false),true)}</View>
+        {busy && <ActivityIndicator accessibilityLabel="Processing receipt"/>}
+        <Text style={s.sub}>Use a manual claim for annual statements or personal reliefs. Keep the original supporting documents. One saved receipt can be linked once; record only qualifying items.</Text>
+        <View style={s.row}>{["Claims","Breakdown"].map(t=><Pressable key={t} style={[s.chip,tab===t&&s.chipActive]} onPress={()=>setTab(t)}><Text>{t}</Text></Pressable>)}</View>
+        {tab==="Claims" ? visible.length===0 ? <Text style={s.empty}>No claims for YA {year}. Add a claim or review a saved receipt to get started.</Text> :
+          visible.map(c=><Pressable key={c.id} style={s.card} onPress={()=>void openClaim(c)} disabled={busy} accessibilityRole="button">
+            <Text style={s.cardTitle}>{c.title}</Text><Text style={s.sub}>{TAX_RULES.find(r=>r.id===c.rule_id)?.title || "Choose a relief"}</Text>
+            <Text style={s.status}>{c.status==="confirmed"?"Confirmed by you":c.status==="rejected"?"Excluded":"Needs review"} · {money(Number(c.eligible_amount))} requested</Text>
+            <Text style={s.sub}>{c.occurred_on || "Personal declaration"} · Tap to review</Text>
+          </Pressable>) :
+          calculation.rows.map(r=><View key={r.rule.id} style={s.card}><Text style={s.cardTitle}>{r.rule.title}</Text>
+            <Text>{money(r.allowed)} eligible / {money(r.rule.cap)} limit</Text>
+            <Text style={s.sub}>{money(r.remaining)} remaining after individual and shared limits</Text>
+            {r.excluded>0 && <Text style={s.notice}>{money(r.excluded)} excluded by individual or shared limit.</Text>}
+            {r.rule.group && <Text style={s.sub}>Shared cap: {money(r.rule.groupCap!)}. Allocation follows the order shown.</Text>}
+          </View>)}
+        <Text style={s.sub}>YA2025 sources reviewed 25 September 2026. Child/dependent calculations, rebates and a full tax-payable estimate will be added in later milestones.</Text>
+        {button("Official HASiL relief guidance",()=>void Linking.openURL("https://www.hasil.gov.my/individu/pelepasan-cukai/"),true)}
+      </>}
+    </ScrollView>
+    <Modal visible={!!draft} animationType="slide" onRequestClose={()=>{if(!busy)setDraft(null);}}>
+      <SafeAreaView style={s.safe}><KeyboardAvoidingView style={s.flex} behavior={Platform.OS==="ios"?"padding":undefined}>
+        <View style={s.header}><Text style={s.heading}>Review claim</Text>{button("Close",()=>setDraft(null),true)}</View>
+        {draft && <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+          <View style={s.row}>{[2025,2026,...(![2025,2026].includes(draft.tax_year)?[draft.tax_year]:[])].map(y=><Pressable disabled={busy} key={y} style={[s.chip,draft.tax_year===y&&s.chipActive]} onPress={()=>patch({tax_year:y,rule_version:null})}><Text>YA {y}</Text></Pressable>)}</View>
+          {draft.tax_year!==2025 && <Text style={s.notice}>Save a draft for this year. YA2025 limits must not be used to estimate YA {draft.tax_year}.</Text>}
+          {button(rule?.title || "Choose the exact relief",()=>setRulePicker(true),true)}
+          {rulePicker && TAX_RULES.map(r=><Pressable key={r.id} style={s.card} onPress={()=>chooseRule(r.id)} disabled={busy}><Text>{r.category} · {r.title}</Text></Pressable>)}
+          {rule && <View style={s.card}><Text style={s.cardTitle}>{rule.title}</Text>
+            <Text>{draft.tax_year===2025 ? money(rule.cap)+" annual limit" : "YA2025 reference category only"}</Text>
+            <Text style={s.sub}>Evidence: {rule.documents}</Text>
+            {button("Read eligibility at HASiL",()=>void Linking.openURL(rule.source),true)}
+            <Text style={s.sub}>Reviewed {rule.reviewed} · YA{rule.year}</Text></View>}
+          {field("Claim title",draft.title,v=>patch({title:v}))}
+          {field("Beneficiary (for example Self or parent’s name)",draft.beneficiary,v=>patch({beneficiary:v}))}
+          {rule?.mode!=="fixed" && field("Payment date (YYYY-MM-DD)",draft.dateText,v=>patch({dateText:v}))}
+          {field(rule?.mode==="fixed"?"Personal relief amount":"Recorded amount (RM)",draft.amountText,v=>patch({amountText:v}),true)}
+          {field("Eligible amount requested (RM)",draft.eligibleText,v=>patch({eligibleText:v}),true)}
+          {receipt && <View style={s.card}><Text style={s.cardTitle}>Original receipt</Text><Text>{receipt.merchant_name} · {money(Number(receipt.total_amount))}</Text>
+            <Text style={s.sub}>Receipt date: {receipt.receipt_date}. Correct receipt details in Transactions if needed.</Text>
+            {receipt.image_url && button("View receipt image",()=>void viewImage(),true)}
+            <Text style={s.sub}>Select qualifying items to fill the eligible amount, or enter a corrected amount above. Check discounts and refunds yourself.</Text>
+            {(receipt.items||[]).map((item,i)=><Pressable key={i} disabled={busy} style={s.item} onPress={()=>{
+              const ids=selectedItems.includes(i)?selectedItems.filter(n=>n!==i):[...selectedItems,i];setSelectedItems(ids);
+              patch({eligibleText:(ids.reduce((sum,n)=>sum+Math.round(Number(receipt.items![n].price)*100),0)/100).toFixed(2)});
+            }}><Text>{selectedItems.includes(i)?"☑":"☐"} {item.name} · {money(Number(item.price))}</Text></Pressable>)}
+          </View>}
+          {field("Supporting document reference / notes",draft.evidence_note,v=>patch({evidence_note:v}))}
+          <Text style={s.sub}>For a statement, record its issuer and year here and retain your copy. Enter only amounts you paid and have not claimed elsewhere.</Text>
+          {rule && draft.tax_year===2025 && <Pressable disabled={busy} accessibilityRole="checkbox" accessibilityState={{checked:draft.eligibility_confirmed}} style={s.card}
+            onPress={()=>setDraft({...draft,eligibility_confirmed:!draft.eligibility_confirmed})}>
+            <Text>{draft.eligibility_confirmed?"☑":"☐"} I was a Malaysian tax resident for this year. {rule.condition} I checked the original evidence and have not claimed the same expense twice.</Text>
+          </Pressable>}
+          {busy && <ActivityIndicator/>}
+          {button("Save draft",()=>void save("needs_review"),true)}
+          {button("Confirm eligible claim",()=>void save("confirmed"),false,busy||draft.tax_year!==2025||!rule||!draft.eligibility_confirmed)}
+          {draft.id && button("Exclude from estimate",()=>void save("rejected"),true)}
+          <Text style={s.sub}>Excluding a claim keeps its receipt and transaction. Confirmed claims are still subject to annual limits.</Text>
+        </ScrollView>}
+      </KeyboardAvoidingView></SafeAreaView>
+      <Modal visible={!!image} onRequestClose={()=>setImage(null)}><SafeAreaView style={s.safe}>{button("Close image",()=>setImage(null),true)}{image&&<Image source={{uri:image}} style={s.flex} resizeMode="contain"/>}</SafeAreaView></Modal>
+    </Modal>
+    <Modal visible={picker} animationType="slide" onRequestClose={()=>setPicker(false)}><SafeAreaView style={s.safe}>
+      <View style={s.header}><Text style={s.heading}>Receipts · YA {year}</Text>{button("Close",()=>setPicker(false),true)}</View>
+      <ScrollView contentContainerStyle={s.content}>{receipts.length===0&&<Text>No unlinked receipts for this year.</Text>}
+        {receipts.map(r=><Pressable key={r.id} style={s.card} onPress={()=>{
+          setPicker(false);setReceipt(r);setSelectedItems([]);setRulePicker(false);
+          setDraft({...emptyClaim(year),receipt_id:r.id,title:r.merchant_name||"Receipt",amountText:String(r.total_amount),eligibleText:"0",dateText:r.receipt_date});
+        }}><Text style={s.cardTitle}>{r.merchant_name}</Text><Text>{r.receipt_date} · {money(Number(r.total_amount))}</Text></Pressable>)}
+      </ScrollView></SafeAreaView></Modal>
+  </SafeAreaView>;
 }
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#00D09C",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    paddingBottom: 40,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  bellIcon: {
-    backgroundColor: "#fff",
-    padding: 6,
-    borderRadius: 20,
-    overflow: "hidden",
-  },
-  titleContainer: {
-    alignItems: "center",
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  headerSubtitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  whiteContainer: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
-    paddingTop: 20,
-    marginTop: -20,
-  },
-  tabWrapper: {
-    marginHorizontal: 20,
-    backgroundColor: "#E8F5E9",
-    borderRadius: 30,
-    padding: 5,
-    marginBottom: 20,
-  },
-  tabScrollContent: {
-    alignItems: "center",
-  },
-  tabButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-  },
-  activeTabButton: {
-    backgroundColor: "#00D09C",
-  },
-  tabText: {
-    fontSize: 14,
-    color: "#093030",
-    fontWeight: "500",
-  },
-  activeTabText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  contentScroll: {
-    flex: 1,
-    paddingHorizontal: 25,
-  },
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#093030",
-  },
-
-  card: {
-    marginBottom: 20,
-    backgroundColor: "#f9f9f9",
-    padding: 15,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#eee",
-  },
-  cardHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 15,
-  },
-  cardText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#333",
-    lineHeight: 22,
-    paddingRight: 10,
-  },
-
-  // Noticeable Info Badge
-  infoBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#e8f5e9",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#4caf50",
-    marginTop: 5,
-  },
-  infoBadgeText: {
-    fontSize: 12,
-    color: "#2e7d32",
-    fontWeight: "600",
-    marginLeft: 4,
-  },
-
-  scanActionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#00D09C",
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  scanActionText: {
-    fontSize: 14,
-    color: "#fff",
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-  viewButton: {
-    backgroundColor: "#093030",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 15,
-    borderRadius: 12,
-    marginTop: 10,
-  },
-  viewButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-    marginLeft: 8,
-  },
-
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "#F5F7F8",
-    padding: 20,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-    marginTop: 10,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#093030",
-  },
-  closeText: {
-    fontSize: 16,
-    color: "#00D09C",
-    fontWeight: "600",
-  },
-  emptyText: {
-    textAlign: "center",
-    marginTop: 40,
-    color: "#666",
-    fontSize: 16,
-  },
-  modalScroll: { flex: 1 },
-  receiptCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 15,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
-  },
-  receiptImage: {
-    width: 70,
-    height: 70,
-    borderRadius: 8,
-    marginRight: 15,
-  },
-  receiptDetails: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  receiptMerchant: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
-    marginBottom: 4,
-  },
-  receiptAmount: {
-    fontSize: 15,
-    color: "#00D09C",
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  receiptDate: { fontSize: 12, color: "#888" },
-  warningText: {
-    fontSize: 12,
-    color: "#d9534f",
-    marginTop: 5,
-    fontWeight: "500",
-  },
-
-  infoModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  infoModalCard: {
-    backgroundColor: "#fff",
-    width: "100%",
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  infoModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 15,
-  },
-  infoModalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#333",
-    marginLeft: 8,
-  },
-  infoModalBody: {
-    fontSize: 14,
-    color: "#555",
-    lineHeight: 22,
-    marginBottom: 25,
-  },
-  infoModalButton: {
-    backgroundColor: "#00D09C",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  infoModalButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-
-  // DASHBOARD STYLES
-  dashboardContainer: {
-    paddingBottom: 20,
-  },
-  summaryCard: {
-    backgroundColor: "#00D09C",
-    padding: 25,
-    alignItems: "center",
-    borderRadius: 20,
-    marginBottom: 25,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  summaryTitle: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.8)",
-    fontWeight: "600",
-    marginBottom: 5,
-  },
-  summaryAmount: {
-    fontSize: 36,
-    color: "#fff",
-    fontWeight: "bold",
-    marginBottom: 5,
-  },
-  summarySubtitle: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.9)",
-    fontStyle: "italic",
-  },
-  categoryProgressRow: {
-    backgroundColor: "#f9f9f9",
-    padding: 15,
-    borderRadius: 12,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: "#eee",
-  },
-  categoryProgressHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    marginBottom: 10,
-  },
-  categoryProgressName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#333",
-    flex: 1,
-  },
-  categoryProgressValues: {
-    flexDirection: "row",
-    alignItems: "baseline",
-  },
-  eligibleText: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#00D09C",
-  },
-  maxedText: {
-    color: "#FF9800",
-  },
-  limitText: {
-    fontSize: 11,
-    color: "#888",
-    fontWeight: "500",
-  },
-  progressBarBackground: {
-    height: 8,
-    backgroundColor: "#E8F5E9",
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: "#00D09C",
-    borderRadius: 4,
-  },
-  progressBarMaxed: {
-    backgroundColor: "#FF9800",
-  },
-  overSpentText: {
-    fontSize: 11,
-    color: "#666",
-    marginTop: 8,
-    fontStyle: "italic",
-  },
-  fullImageOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(0,0,0,0.9)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 100,
-  },
-  fullImageCloseButton: {
-    position: "absolute",
-    top: 50,
-    right: 20,
-    zIndex: 101,
-    padding: 10,
-  },
-  fullImage: { width: "100%", height: "80%" },
+const s = StyleSheet.create({
+  safe:{flex:1,backgroundColor:"#f3f8f6"},flex:{flex:1},header:{padding:16,flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:12},
+  heading:{fontSize:23,fontWeight:"700",color:"#093030"},sub:{fontSize:13,color:"#526b64",lineHeight:20},
+  content:{padding:20,gap:14,paddingBottom:48},row:{flexDirection:"row",flexWrap:"wrap",gap:10},
+  hero:{backgroundColor:"#093030",padding:24,borderRadius:22,gap:10},heroLabel:{color:"#d5f4e8",lineHeight:21},total:{fontSize:30,fontWeight:"700",color:"#fff"},
+  card:{backgroundColor:"#fff",padding:18,borderRadius:16,gap:8,borderWidth:1,borderColor:"#dce9e3"},cardTitle:{fontSize:16,fontWeight:"600",color:"#093030"},
+  button:{backgroundColor:"#007e62",padding:14,borderRadius:12,alignItems:"center"},buttonText:{color:"#fff",fontWeight:"600"},
+  secondary:{backgroundColor:"#e0eee8"},secondaryText:{color:"#093030"},disabled:{opacity:0.45},
+  chip:{paddingHorizontal:18,paddingVertical:12,borderRadius:22,backgroundColor:"#e3eae7"},chipActive:{backgroundColor:"#8ce3c2"},
+  notice:{color:"#83520a",lineHeight:21},empty:{paddingVertical:30,color:"#526b64",lineHeight:24},
+  status:{color:"#00765b",fontWeight:"600"},field:{gap:7},label:{fontSize:14,fontWeight:"500",color:"#093030"},
+  input:{backgroundColor:"#fff",borderWidth:1,borderColor:"#bdcfc7",padding:14,borderRadius:10,color:"#093030",fontSize:16},
+  item:{paddingVertical:12,borderBottomWidth:1,borderBottomColor:"#e0eee8"},
 });
