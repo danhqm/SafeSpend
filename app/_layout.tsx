@@ -26,7 +26,7 @@ export default function RootLayout() {
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="landing" />
         <Stack.Screen name="login" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="register" />
+        <Stack.Screen name="register" options={{ gestureEnabled: false }} />
         <Stack.Screen name="editprofile" />
         <Stack.Screen
           name="add-transaction"
