@@ -1,10 +1,14 @@
 // app/register.tsx
 import { useRouter } from "expo-router";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
+import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +17,20 @@ import {
   View,
 } from "react-native";
 import { supabase } from "../utils/supabase";
+import { emailConfirmationRedirect } from "../utils/auth-redirect";
+
+const minimumBirthDate = new Date(1900, 0, 1);
+
+function formatBirthDate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function parseBirthDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return formatBirthDate(date) === value ? date : null;
+}
 
 export default function Register() {
   const router = useRouter();
@@ -23,7 +41,27 @@ export default function Register() {
   const [dob, setDob] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [monthlyIncome, setMonthlyIncome] = useState("");
+  const [isPickerVisible, setPickerVisible] = useState(false);
+  const [pickerDate, setPickerDate] = useState(new Date(2000, 0, 1));
+
+  const openBirthDatePicker = () => {
+    const initialDate = parseBirthDate(dob) ?? new Date(2000, 0, 1);
+    if (Platform.OS === "android") {
+      DateTimePickerAndroid.open({
+        value: initialDate,
+        mode: "date",
+        display: "calendar",
+        minimumDate: minimumBirthDate,
+        maximumDate: new Date(),
+        onChange: (event, selectedDate) => {
+          if (event.type === "set" && selectedDate) setDob(formatBirthDate(selectedDate));
+        },
+      });
+    } else {
+      setPickerDate(initialDate);
+      setPickerVisible(true);
+    }
+  };
 
   const handleRegister = async () => {
     if (!username.trim() || !email.trim() || !password) {
@@ -34,12 +72,9 @@ export default function Register() {
       Alert.alert("Error", "Passwords do not match");
       return;
     }
-    if (dob && !/^\d{4}-\d{2}-\d{2}$/.test(dob)) {
-      Alert.alert("Error", "Date of birth must use YYYY-MM-DD");
-      return;
-    }
-    if (monthlyIncome && (!Number.isFinite(Number(monthlyIncome)) || Number(monthlyIncome) < 0)) {
-      Alert.alert("Error", "Monthly income must be a non-negative number");
+    const parsedDob = dob ? parseBirthDate(dob) : null;
+    if (dob && (!parsedDob || parsedDob < minimumBirthDate || parsedDob > new Date())) {
+      Alert.alert("Error", "Please choose a valid date of birth");
       return;
     }
 
@@ -47,11 +82,11 @@ export default function Register() {
       email: email.trim().toLowerCase(),
       password,
       options: {
+        emailRedirectTo: emailConfirmationRedirect,
         data: {
           username: username.trim(),
           mobile: mobile.trim() || null,
           dob: dob || null,
-          monthly_income: monthlyIncome ? Number(monthlyIncome) : null,
         },
       },
     });
@@ -112,13 +147,28 @@ export default function Register() {
           />
 
           <Text style={styles.label}>Date Of Birth</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={"#9DBDB0"}
-            value={dob}
-            onChangeText={setDob}
-          />
+          {Platform.OS === "web" ? (
+            <TextInput
+              style={styles.input}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#9DBDB0"
+              value={dob}
+              onChangeText={setDob}
+              keyboardType="numbers-and-punctuation"
+            />
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Choose date of birth"
+              onPress={openBirthDatePicker}
+              style={styles.dateInput}
+            >
+              <Text style={[styles.dateText, !dob && styles.datePlaceholder]}>
+                {dob ? parseBirthDate(dob)?.toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" }) : "Choose your date of birth"}
+              </Text>
+              <Ionicons name="calendar-outline" size={22} color="#0E3E3E" />
+            </Pressable>
+          )}
 
           <Text style={styles.label}>Password</Text>
           <TextInput
@@ -140,16 +190,6 @@ export default function Register() {
             secureTextEntry
           />
 
-          <Text style={styles.label}>Monthly Income</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your monthly income"
-            placeholderTextColor={"#9DBDB0"}
-            value={monthlyIncome}
-            onChangeText={setMonthlyIncome}
-            keyboardType="numeric"
-          />
-
           <Text style={styles.policyText}>
             By continuing, you agree to Terms of Use and Privacy Policy{" "}
             <Text style={{ fontWeight: "700" }}>Log In</Text>
@@ -162,7 +202,7 @@ export default function Register() {
             <Text style={styles.signUpText}>Sign Up</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => router.push("/landing")}>
+          <TouchableOpacity onPress={() => router.replace("/login")}>
             <Text style={styles.loginText}>
               Already have an account?{" "}
               <Text style={{ fontWeight: "700" }}></Text>
@@ -171,6 +211,45 @@ export default function Register() {
           </TouchableOpacity>
         </ScrollView>
       </View>
+      {Platform.OS === "ios" && (
+        <Modal
+          visible={isPickerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPickerVisible(false)}
+        >
+          <View style={styles.pickerBackdrop}>
+            <View style={styles.pickerSheet}>
+              <Text style={styles.pickerHeading}>Choose your date of birth</Text>
+              <DateTimePicker
+                value={pickerDate}
+                mode="date"
+                display="inline"
+                minimumDate={minimumBirthDate}
+                maximumDate={new Date()}
+                onChange={(_, selectedDate) => {
+                  if (selectedDate) setPickerDate(selectedDate);
+                }}
+                style={styles.picker}
+              />
+              <View style={styles.pickerActions}>
+                <Pressable onPress={() => setPickerVisible(false)} style={styles.pickerAction}>
+                  <Text style={styles.pickerCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setDob(formatBirthDate(pickerDate));
+                    setPickerVisible(false);
+                  }}
+                  style={[styles.pickerAction, styles.pickerDone]}
+                >
+                  <Text style={styles.pickerDoneText}>Done</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -225,6 +304,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 15,
   },
+  dateInput: {
+    height: 50,
+    backgroundColor: "#DFF7E2",
+    borderWidth: 1,
+    borderColor: "#0E3E3E",
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    marginBottom: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dateText: { color: "#0E3E3E", fontFamily: "Poppins_400Regular", fontSize: 16 },
+  datePlaceholder: { color: "#9DBDB0" },
+  pickerBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0008", padding: 10 },
+  pickerSheet: { width: "100%", maxWidth: 400, borderRadius: 20, backgroundColor: "#fff", padding: 10 },
+  pickerHeading: { color: "#0E3E3E", fontFamily: "Poppins_700Bold", fontSize: 18, textAlign: "center" },
+  picker: { alignSelf: "center", width: "100%", height: 340 },
+  pickerActions: { flexDirection: "row", gap: 12, marginTop: 16 },
+  pickerAction: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 12 },
+  pickerCancelText: { color: "#0E3E3E", fontFamily: "Poppins_700Bold" },
+  pickerDone: { backgroundColor: "#00D09E" },
+  pickerDoneText: { color: "#0E3E3E", fontFamily: "Poppins_700Bold" },
 
   signUpButton: {
     backgroundColor: "#00D09E",

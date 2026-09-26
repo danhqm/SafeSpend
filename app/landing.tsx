@@ -22,7 +22,7 @@ export default function LandingScreen() {
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={styles.loginButton}
-          onPress={() => router.push("/login")}
+          onPress={() => router.replace("/login")}
         >
           <Text style={styles.loginText}>Log In</Text>
         </TouchableOpacity>

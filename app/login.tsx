@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../utils/supabase";
+import { emailConfirmationRedirect } from "../utils/auth-redirect";
 
 export default function Login() {
   const router = useRouter();
@@ -52,6 +53,7 @@ export default function Login() {
     const { error } = await supabase.auth.resend({
       type: "signup",
       email: email.trim().toLowerCase(),
+      options: { emailRedirectTo: emailConfirmationRedirect },
     });
 
     if (error) {

@@ -4,6 +4,10 @@
     {
       "source": "/set-password",
       "destination": "/api/set-password"
+    },
+    {
+      "source": "/confirm-email",
+      "destination": "/api/confirm-email"
     }
   ]
 }
