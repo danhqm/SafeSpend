@@ -7,6 +7,7 @@ import {
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-url-polyfill/auto";
+import { BiometricGate } from "../components/biometric-gate";
 import { BrandSplash } from "../components/brand-splash";
 
 export default function RootLayout() {
@@ -20,7 +21,7 @@ export default function RootLayout() {
   }
 
   return (
-    <>
+    <BiometricGate>
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="splashscreen" />
         <Stack.Screen name="onboarding" />
@@ -87,6 +88,6 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />
-    </>
+    </BiometricGate>
   );
 }

@@ -11,6 +11,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../utils/supabase";
 import { emailConfirmationRedirect } from "../utils/auth-redirect";
+import {
+  enableFaceIdFor,
+  markFaceIdOfferedTo,
+  shouldOfferFaceIdTo,
+} from "../utils/biometrics";
 
 export default function Login() {
   const router = useRouter();
@@ -24,7 +29,7 @@ export default function Login() {
       return;
     }
 
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data, error: authError } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password,
     });
@@ -42,6 +47,31 @@ export default function Login() {
     }
 
     router.replace("/(tabs)");
+
+    if (data.user) {
+      try {
+        if (await shouldOfferFaceIdTo(data.user.id)) {
+          await markFaceIdOfferedTo(data.user.id);
+          Alert.alert(
+            "Use Face ID next time?",
+            "Unlock SafeSpend with Face ID whenever you open the app. Your password will not be saved.",
+            [
+              { text: "Not now", style: "cancel" },
+              {
+                text: "Enable Face ID",
+                onPress: () => {
+                  void enableFaceIdFor(data.user.id).catch(() =>
+                    Alert.alert("Face ID unavailable", "You can try again from Profile."),
+                  );
+                },
+              },
+            ],
+          );
+        }
+      } catch {
+        // Face ID is optional; a successful password sign-in must still work.
+      }
+    }
   };
 
   const handleResendVerification = async () => {

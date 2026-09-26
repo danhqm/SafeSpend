@@ -12,7 +12,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --experimental-strip-types --test tests/finance.test.ts tests/learning.test.ts tests/tax.test.ts",
+    "test": "node --experimental-strip-types --test tests/auth-storage.test.ts tests/finance.test.ts tests/learning.test.ts tests/tax.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -30,8 +30,10 @@
     "expo-image": "~57.0.5",
     "expo-image-picker": "~57.0.17",
     "expo-linking": "~57.0.10",
+    "expo-local-authentication": "~57.0.3",
     "expo-notifications": "~57.0.18",
     "expo-router": "~57.0.21",
+    "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.3",

@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Image,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +14,12 @@ import {
 import { ActivityIndicator } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../utils/supabase";
+import {
+  canUseFaceId,
+  disableFaceId,
+  enableFaceIdFor,
+  isFaceIdEnabledFor,
+} from "../../utils/biometrics";
 
 const MENU_ITEMS = [
   { label: "Edit Profile", icon: "person-outline" as const },
@@ -61,6 +68,10 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [faceIdAvailable, setFaceIdAvailable] = useState(false);
+  const [faceIdEnabled, setFaceIdEnabled] = useState(false);
+  const [faceIdBusy, setFaceIdBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -77,15 +88,33 @@ export default function ProfileScreen() {
         return;
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from("users")
-        .select("id, username, email, user_id, avatar_url")
-        .eq("user_id", user.id)
-        .single();
+      const [profileResult, biometricResult] = await Promise.all([
+        supabase
+          .from("users")
+          .select("id, username, email, user_id, avatar_url")
+          .eq("user_id", user.id)
+          .single(),
+        (async () => {
+          try {
+            const available = await canUseFaceId();
+            return {
+              available,
+              enabled: available && (await isFaceIdEnabledFor(user.id)),
+            };
+          } catch {
+            return { available: false, enabled: false };
+          }
+        })(),
+      ]);
+      const { data: profile, error: profileError } = profileResult;
 
       if (profileError) {
         console.log("Profile load error:", profileError.message);
       }
+
+      setAuthUserId(user.id);
+      setFaceIdAvailable(biometricResult.available);
+      setFaceIdEnabled(biometricResult.enabled);
 
       if (profile?.username) {
         setDisplayName(profile.username);
@@ -103,6 +132,23 @@ export default function ProfileScreen() {
   }, []);
 
   const nameToShow = displayName ?? "Guest";
+
+  const toggleFaceId = async () => {
+    if (!authUserId || faceIdBusy) return;
+    setFaceIdBusy(true);
+    try {
+      if (faceIdEnabled) {
+        await disableFaceId();
+        setFaceIdEnabled(false);
+      } else if (await enableFaceIdFor(authUserId)) {
+        setFaceIdEnabled(true);
+      }
+    } catch {
+      Alert.alert("Face ID unavailable", "Please try again later.");
+    } finally {
+      setFaceIdBusy(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -137,6 +183,22 @@ export default function ProfileScreen() {
           )}
 
           <View style={styles.menuList}>
+            {faceIdAvailable && authUserId ? (
+              <TouchableOpacity
+                style={styles.menuRow}
+                activeOpacity={0.7}
+                disabled={faceIdBusy}
+                onPress={() => void toggleFaceId()}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: faceIdEnabled, disabled: faceIdBusy }}
+              >
+                <View style={styles.menuIconWrapper}>
+                  <Ionicons name="scan-outline" size={24} color="#2F80ED" />
+                </View>
+                <Text style={styles.menuLabel}>Face ID on this iPhone</Text>
+                <Text style={styles.menuValue}>{faceIdEnabled ? "On" : "Off"}</Text>
+              </TouchableOpacity>
+            ) : null}
             {MENU_ITEMS.map((item) => (
               <TouchableOpacity
                 key={item.label}
@@ -147,8 +209,9 @@ export default function ProfileScreen() {
                     router.push("/editprofile");
                   }
                   if (item.label === "Logout") {
-                    await supabase.auth.signOut();
-                    router.replace("/login");
+                    const { error } = await supabase.auth.signOut();
+                    if (error) Alert.alert("Logout failed", error.message);
+                    else router.replace("/login");
                   }
                   if (item.label === "LHDN Tax Relief") {
                     router.push("/lhdn");
@@ -276,4 +339,5 @@ const styles = StyleSheet.create({
     color: "#16302A",
     fontWeight: "500",
   },
+  menuValue: { marginLeft: "auto", color: "#008F70", fontWeight: "700" },
 });
