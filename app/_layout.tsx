@@ -6,8 +6,8 @@ import {
 } from "@expo-google-fonts/poppins";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, View } from "react-native";
 import "react-native-url-polyfill/auto";
+import { BrandSplash } from "../components/brand-splash";
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -16,11 +16,7 @@ export default function RootLayout() {
   });
 
   if (!fontsLoaded) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#00D09E" />
-      </View>
-    );
+    return <BrandSplash />;
   }
 
   return (

@@ -1,16 +1,23 @@
 import { useRouter } from "expo-router";
+import { Image } from "expo-image";
+import { useRef, useState } from "react";
 import {
-  Dimensions,
   FlatList,
-  Image,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-
-const { width, height } = Dimensions.get("window");
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, {
+  Extrapolation,
+  FadeIn,
+  interpolate,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 
 const onboardingData = [
   {
@@ -29,159 +36,178 @@ const onboardingData = [
 
 export default function Onboarding() {
   const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const { bottom } = useSafeAreaInsets();
+  const listRef = useRef<FlatList<(typeof onboardingData)[number]>>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const scrollX = useSharedValue(0);
+  const illustrationSize = Math.min(width - 96, height * 0.32, 280);
+
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollX.value = event.contentOffset.x;
+  });
+  const progressStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateX: interpolate(
+          scrollX.value,
+          [0, width * (onboardingData.length - 1)],
+          [0, 32 * (onboardingData.length - 1)],
+          Extrapolation.CLAMP
+        ),
+      },
+    ],
+  }));
+
+  const updatePage = (offset: number) => {
+    setCurrentIndex(
+      Math.max(0, Math.min(onboardingData.length - 1, Math.round(offset / width)))
+    );
+  };
+
+  const handleContinue = () => {
+    if (currentIndex < onboardingData.length - 1) {
+      const nextIndex = currentIndex + 1;
+      listRef.current?.scrollToIndex({ index: nextIndex, animated: true });
+      setCurrentIndex(nextIndex);
+    } else {
+      router.push("/landing");
+    }
+  };
+
   return (
-    <FlatList
-      data={onboardingData}
-      horizontal
-      pagingEnabled
-      showsHorizontalScrollIndicator={false}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item, index }) => (
-        <View style={styles.page}>
-          <View style={styles.topGreenBackground} />
-
-          <SafeAreaView
-            style={styles.safeArea}
-            edges={["top", "left", "right"]}
-          >
-            <Text style={styles.title}>{item.title}</Text>
-          </SafeAreaView>
-
-          <View style={styles.card}>
-            <View
-              style={[
-                styles.circleBackground,
-                { backgroundColor: item.circleColor },
-              ]}
-            />
-
-            <Image
-              source={item.image}
-              style={styles.image}
-              resizeMode="contain"
-            />
-            <View style={styles.pagination}>
-              {onboardingData.map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.dot,
-                    i === onboardingData.findIndex((d) => d.id === item.id) &&
-                      styles.activeDot,
-                  ]}
-                />
-              ))}
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+      <Animated.FlatList
+        ref={listRef}
+        data={onboardingData}
+        horizontal
+        pagingEnabled
+        bounces={false}
+        showsHorizontalScrollIndicator={false}
+        keyExtractor={(item) => item.id}
+        getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        onScrollEndDrag={(event) => updatePage(event.nativeEvent.contentOffset.x)}
+        onMomentumScrollEnd={(event) => updatePage(event.nativeEvent.contentOffset.x)}
+        renderItem={({ item }) => (
+          <View style={[styles.page, { width }]}>
+            <View style={styles.hero}>
+              <Text style={styles.title}>{item.title}</Text>
             </View>
-
-            {index === 1 && (
-              <TouchableOpacity
-                style={styles.continueButton}
-                onPress={() => router.push("/landing")}
+            <View style={styles.card}>
+              <View
+                style={[
+                  styles.imageHalo,
+                  {
+                    width: illustrationSize,
+                    height: illustrationSize,
+                    borderRadius: illustrationSize / 2,
+                    backgroundColor: item.circleColor,
+                  },
+                ]}
               >
-                <Text style={styles.continueText}>Continue</Text>
-              </TouchableOpacity>
-            )}
+                <Image
+                  source={item.image}
+                  style={{ width: illustrationSize, height: illustrationSize }}
+                  contentFit="contain"
+                />
+              </View>
+            </View>
           </View>
+        )}
+      />
+
+      <View style={[styles.footer, { paddingBottom: Math.max(bottom, 16) }]}>
+        <View
+          style={styles.progressTrack}
+          accessible
+          accessibilityLabel={`Page ${currentIndex + 1} of ${onboardingData.length}`}
+        >
+          {onboardingData.map((item) => (
+            <View key={item.id} style={styles.progressSlot}>
+              <View style={styles.dot} />
+            </View>
+          ))}
+          <Animated.View style={[styles.activeDot, progressStyle]} />
         </View>
-      )}
-    />
+        <Pressable
+          accessibilityRole="button"
+          onPress={handleContinue}
+          style={styles.continueButton}
+        >
+          <Animated.Text
+            key={currentIndex}
+            entering={FadeIn.duration(180)}
+            style={styles.continueText}
+          >
+            {currentIndex === onboardingData.length - 1 ? "Continue" : "Next"}
+          </Animated.Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: {
-    width,
-    height,
-    backgroundColor: "#F1FFF3",
-    alignItems: "center",
-  },
-  topGreenBackground: {
-    position: "absolute",
-    top: 0,
-    width: "100%",
-    height: 400, // Extends just far enough down to hide behind the curved card
-    backgroundColor: "#00D09E",
-  },
-  safeArea: {
-    alignItems: "center",
-    paddingVertical: 40,
-  },
-
-  title: {
-    top: 40,
-    fontSize: 30,
-    width: 230,
-    textAlign: "center",
-    fontWeight: "bold",
-    color: "#0E3E3E",
-    fontFamily: "Poppins_700Bold",
-    lineHeight: 39,
-  },
-
-  card: {
-    height: 550,
-    width: "100%",
-    backgroundColor: "#F1FFF3",
-    borderTopLeftRadius: 70,
-    borderTopRightRadius: 70,
+  container: { flex: 1, backgroundColor: "#00D09E" },
+  page: { flex: 1, backgroundColor: "#00D09E" },
+  hero: {
+    flex: 0.9,
     alignItems: "center",
     justifyContent: "center",
-    position: "absolute",
-    top: 300,
+    paddingHorizontal: 32,
+    paddingVertical: 20,
   },
-
-  circleBackground: {
-    position: "absolute",
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    top: 120,
-    zIndex: 0,
-    alignSelf: "center",
+  title: {
+    maxWidth: 350,
+    color: "#0E3E3E",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 28,
+    lineHeight: 38,
+    textAlign: "center",
   },
-
-  image: {
-    width: 287,
-    height: 287,
-    position: "absolute",
-    top: 120,
-    zIndex: 1,
-    alignSelf: "center",
+  card: {
+    flex: 1.1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderTopLeftRadius: 40,
+    borderTopRightRadius: 40,
+    backgroundColor: "#F1FFF3",
+    paddingHorizontal: 24,
+    paddingVertical: 20,
   },
-
-  pagination: {
-    position: "absolute",
-    bottom: 50,
-    flexDirection: "row",
-    alignSelf: "center",
-    zIndex: 2,
+  imageHalo: { alignItems: "center", justifyContent: "center" },
+  footer: {
+    alignItems: "center",
+    gap: 20,
+    paddingHorizontal: 28,
+    paddingTop: 16,
+    backgroundColor: "#F1FFF3",
   },
-
-  dot: {
-    width: 8,
+  progressTrack: { flexDirection: "row", gap: 12, height: 12, alignItems: "center" },
+  progressSlot: { width: 20, alignItems: "center" },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#C5DDD3" },
+  activeDot: {
+    position: "absolute",
+    left: 0,
+    width: 20,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#CDE6D8",
-    marginHorizontal: 6,
+    backgroundColor: "#00B98C",
   },
-
-  activeDot: {
-    backgroundColor: "#00D09E",
-    width: 18,
-  },
-
   continueButton: {
+    width: "100%",
+    maxWidth: 400,
+    minHeight: 54,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 28,
     backgroundColor: "#00D09E",
-    paddingVertical: 12,
-    paddingHorizontal: 40,
-    borderRadius: 25,
-    marginTop: 350,
   },
-
   continueText: {
     color: "#0E3E3E",
-    fontSize: 20,
-    fontWeight: "700",
     fontFamily: "Poppins_700Bold",
+    fontSize: 17,
   },
 });
