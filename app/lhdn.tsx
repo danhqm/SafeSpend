@@ -209,7 +209,18 @@ export default function LHDNClaimScreen() {
     </ScrollView>
     <Modal visible={!!draft} animationType="slide" onRequestClose={()=>{if(!busy)setDraft(null);}}>
       <SafeAreaView style={s.modalSafe}><KeyboardAvoidingView style={s.flex} behavior={Platform.OS==="ios"?"padding":undefined}>
-        <View style={s.header}><Text style={s.heading}>Review claim</Text>{button("Close",()=>setDraft(null),true)}</View>
+        <View style={s.header}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            disabled={busy}
+            onPress={()=>setDraft(null)}
+            style={[s.backButton,busy&&s.disabled]}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </Pressable>
+          <Text style={s.heading}>Review claim</Text>
+        </View>
         {draft && <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
           <View style={s.row}>{years.map(y=><Pressable disabled={busy} key={y} style={[s.chip,draft.tax_year===y&&s.chipActive]} onPress={()=>patch({tax_year:y,rule_version:null})}><Text>YA {y}</Text></Pressable>)}</View>
           {draft.tax_year!==2025 && <Text style={s.notice}>Save a draft for this year. YA2025 limits must not be used to estimate YA {draft.tax_year}.</Text>}
