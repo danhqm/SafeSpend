@@ -35,6 +35,7 @@ export default function handler(req, res) {
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #e9fff5; }
     main { width: min(100%, 440px); padding: 32px; border-radius: 24px; background: #fff; text-align: center; box-shadow: 0 12px 40px #0e3e3e1a; }
     .icon { margin: 0 auto 20px; width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; background: #00d09e; font-size: 32px; font-weight: 800; }
+    .icon.error-icon { background: #fde7e7; color: #a92f32; }
     h1 { margin: 0 0 12px; font-size: 1.6rem; }
     p { margin: 0; color: #426a60; line-height: 1.55; }
     .error { color: #a92f32; }
@@ -55,7 +56,10 @@ export default function handler(req, res) {
 
       const heading = document.getElementById("heading");
       const message = document.getElementById("message");
+      const icon = document.querySelector(".icon");
       const fail = (text) => {
+        icon.textContent = "!";
+        icon.classList.add("error-icon");
         heading.textContent = "Could not confirm your email";
         message.textContent = text;
         message.className = "error";
