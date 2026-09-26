@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Modal, 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../utils/supabase";
 import { authenticatedApiFetch } from "../utils/api";
 import { addSignedReceiptImage } from "../utils/receipt-images";
@@ -29,8 +30,6 @@ export default function LHDNClaimScreen() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [image, setImage] = useState<string | null>(null);
-  const [picker, setPicker] = useState(false);
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
   const [tab, setTab] = useState("Claims");
   const [rulePicker, setRulePicker] = useState(false);
@@ -58,7 +57,7 @@ export default function LHDNClaimScreen() {
   const calculation = calculateClaims(claims, year);
   const pending = visible.filter(c=>c.status !== "confirmed" && c.status !== "rejected").length;
   const rule = TAX_RULES.find(r=>r.id === draft?.rule_id);
-  const years = [...new Set([2025,2026,...claims.map(c=>c.tax_year)])].sort((a,b)=>b-a);
+  const years = [2025, 2026];
   const patch = (values: Partial<Draft>) => setDraft(d=>d ? {...d,...values,eligibility_confirmed:false} : null);
 
   const openClaim = async (claim: TaxClaim) => {
@@ -133,23 +132,12 @@ export default function LHDNClaimScreen() {
       await load();
       const {data,error:e} = await supabase.from("tax_claims").select("*").eq("receipt_id",body.data.id).eq("user_id",userId).single();
       if(e) throw e;
+      if (!years.includes(data.tax_year)) {
+        Alert.alert("Receipt outside selected years", `This receipt is from YA ${data.tax_year}. Tax Relief currently shows YA 2025 and YA 2026 only.`);
+        return;
+      }
       setYear(data.tax_year); await openClaim(data);
     } catch(e) { Alert.alert("Could not scan receipt",errorMessage(e)); }
-    finally { setBusy(false); }
-  };
-  const showReceipts = async () => {
-    setBusy(true);
-    try {
-      const list: Receipt[] = [];
-      for(let offset=0;;offset+=500) {
-        const {data,error:e} = await supabase.from("receipts").select("id,merchant_name,total_amount,receipt_date,image_url,items")
-          .eq("user_id",userId).gte("receipt_date",year+"-01-01").lte("receipt_date",year+"-12-31")
-          .order("receipt_date",{ascending:false}).order("id").range(offset,offset+499);
-        if(e) throw e;
-        list.push(...(data||[])); if(!data || data.length<500) break;
-      }
-      setReceipts(list.filter(r=>!claims.some(c=>c.receipt_id===r.id))); setPicker(true);
-    } catch(e) { Alert.alert("Could not load receipts",errorMessage(e)); }
     finally { setBusy(false); }
   };
   const viewImage = async () => {
@@ -168,22 +156,42 @@ export default function LHDNClaimScreen() {
     <View style={s.field}><Text style={s.label}>{label}</Text><TextInput accessibilityLabel={label} value={value}
       onChangeText={onChangeText} style={s.input} keyboardType={numeric ? "decimal-pad":"default"} editable={!busy}/></View>
   );
-  return <SafeAreaView style={s.safe}>
-    <View style={s.header}>{button("Back",()=>router.back(),true)}<View><Text style={s.heading}>Tax relief</Text><Text style={s.sub}>Your annual claim tracker</Text></View></View>
-    <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-      <View style={s.row}>{years.map(y=><Pressable key={y} onPress={()=>setYear(y)} style={[s.chip,y===year && s.chipActive]} accessibilityRole="button"><Text>YA {y}</Text></Pressable>)}</View>
+  return <SafeAreaView style={s.safe} edges={["top","left","right"]}>
+    <View style={s.header}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={()=>router.back()} style={s.backButton}>
+        <Ionicons name="arrow-back" size={24} color="#fff" />
+      </Pressable>
+      <Text style={s.heading}>Tax Relief</Text>
+    </View>
+    <ScrollView style={s.page} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic">
+      <View style={s.yearTabs}>{years.map(y=><Pressable key={y} onPress={()=>setYear(y)} style={[s.yearTab,y===year && s.yearTabActive]} accessibilityRole="button" accessibilityState={{selected:year===y}}><Text style={[s.yearText,y===year && s.yearTextActive]}>YA {y}</Text></Pressable>)}</View>
       {year!==2025 && <Text style={s.notice}>Draft tracking only. Limits for YA {year} have not been reviewed, so no eligible total is shown.</Text>}
       {error ? <View style={s.card}><Text style={s.notice}>Could not load tax claims: {error}</Text>{button("Retry",()=>void load())}</View> : loading ? <ActivityIndicator/> : <>
-        <View style={s.hero}><Text style={s.heroLabel}>Confirmed relief estimate · YA {year}</Text>
+        <View style={s.hero}><View style={s.heroAccent}/><Text style={s.heroLabel}>Confirmed relief estimate · YA {year}</Text>
           <Text style={s.total}>{calculation.available ? money(calculation.total) : "Awaiting reviewed rules"}</Text>
           <Text style={s.heroLabel}>{pending} claim{pending===1?"":"s"} to review</Text>
           <Text style={s.heroLabel}>Based on your confirmations. This is a reduction in taxable income, not a refund or LHDN approval.</Text></View>
-        <View style={s.row}>{button("Add claim",()=>{setDraft(emptyClaim(year));setReceipt(null);setSelectedItems([]);setRulePicker(false);})}{button("Use saved receipt",()=>void showReceipts(),true)}</View>
-        <View style={s.row}>{button("Scan receipt",()=>void scan(true),true)}{button("Choose photo",()=>void scan(false),true)}</View>
+        <View style={s.actions}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={()=>{setDraft(emptyClaim(year));setReceipt(null);setSelectedItems([]);setRulePicker(false);}} style={[s.addAction,busy&&s.disabled]}>
+            <View style={s.actionIcon}><Ionicons name="add" size={24} color="#006B54"/></View>
+            <View style={s.actionText}><Text style={s.addTitle}>Add claim</Text><Text style={s.actionSubtitle}>Enter relief details yourself</Text></View>
+            <Ionicons name="arrow-forward" size={20} color="#073F38"/>
+          </Pressable>
+          <View style={s.actionGrid}>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={()=>void scan(true)} style={[s.scanAction,busy&&s.disabled]}>
+              <Ionicons name="camera-outline" size={26} color="#fff"/>
+              <Text style={s.actionTitle}>Scan receipt</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={()=>void scan(false)} style={[s.photoAction,busy&&s.disabled]}>
+              <Ionicons name="images-outline" size={26} color="#fff"/>
+              <Text style={s.actionTitle}>Choose photo</Text>
+            </Pressable>
+          </View>
+        </View>
         {busy && <ActivityIndicator accessibilityLabel="Processing receipt"/>}
-        <Text style={s.sub}>Use a manual claim for annual statements or personal reliefs. Keep the original supporting documents. One saved receipt can be linked once; record only qualifying items.</Text>
-        <View style={s.row}>{["Claims","Breakdown"].map(t=><Pressable key={t} style={[s.chip,tab===t&&s.chipActive]} onPress={()=>setTab(t)}><Text>{t}</Text></Pressable>)}</View>
-        {tab==="Claims" ? visible.length===0 ? <Text style={s.empty}>No claims for YA {year}. Add a claim or review a saved receipt to get started.</Text> :
+        <Text style={s.sub}>Use Add claim for annual statements or personal reliefs. Keep the original supporting documents and record only qualifying items.</Text>
+        <View style={s.tabBar}>{["Claims","Breakdown"].map(t=><Pressable key={t} style={[s.tab,tab===t&&s.tabActive]} onPress={()=>setTab(t)} accessibilityRole="button" accessibilityState={{selected:tab===t}}><Text style={[s.tabText,tab===t&&s.tabTextActive]}>{t}</Text></Pressable>)}</View>
+        {tab==="Claims" ? visible.length===0 ? <Text style={s.empty}>No claims for YA {year}. Add a claim or scan a receipt to get started.</Text> :
           visible.map(c=><Pressable key={c.id} style={s.card} onPress={()=>void openClaim(c)} disabled={busy} accessibilityRole="button">
             <Text style={s.cardTitle}>{c.title}</Text><Text style={s.sub}>{TAX_RULES.find(r=>r.id===c.rule_id)?.title || "Choose a relief"}</Text>
             <Text style={s.status}>{c.status==="confirmed"?"Confirmed by you":c.status==="rejected"?"Excluded":"Needs review"} · {money(Number(c.eligible_amount))} requested</Text>
@@ -200,10 +208,10 @@ export default function LHDNClaimScreen() {
       </>}
     </ScrollView>
     <Modal visible={!!draft} animationType="slide" onRequestClose={()=>{if(!busy)setDraft(null);}}>
-      <SafeAreaView style={s.safe}><KeyboardAvoidingView style={s.flex} behavior={Platform.OS==="ios"?"padding":undefined}>
+      <SafeAreaView style={s.modalSafe}><KeyboardAvoidingView style={s.flex} behavior={Platform.OS==="ios"?"padding":undefined}>
         <View style={s.header}><Text style={s.heading}>Review claim</Text>{button("Close",()=>setDraft(null),true)}</View>
         {draft && <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-          <View style={s.row}>{[2025,2026,...(![2025,2026].includes(draft.tax_year)?[draft.tax_year]:[])].map(y=><Pressable disabled={busy} key={y} style={[s.chip,draft.tax_year===y&&s.chipActive]} onPress={()=>patch({tax_year:y,rule_version:null})}><Text>YA {y}</Text></Pressable>)}</View>
+          <View style={s.row}>{years.map(y=><Pressable disabled={busy} key={y} style={[s.chip,draft.tax_year===y&&s.chipActive]} onPress={()=>patch({tax_year:y,rule_version:null})}><Text>YA {y}</Text></Pressable>)}</View>
           {draft.tax_year!==2025 && <Text style={s.notice}>Save a draft for this year. YA2025 limits must not be used to estimate YA {draft.tax_year}.</Text>}
           {button(rule?.title || "Choose the exact relief",()=>setRulePicker(true),true)}
           {rulePicker && TAX_RULES.map(r=><Pressable key={r.id} style={s.card} onPress={()=>chooseRule(r.id)} disabled={busy}><Text>{r.category} · {r.title}</Text></Pressable>)}
@@ -239,25 +247,31 @@ export default function LHDNClaimScreen() {
           <Text style={s.sub}>Excluding a claim keeps its receipt and transaction. Confirmed claims are still subject to annual limits.</Text>
         </ScrollView>}
       </KeyboardAvoidingView></SafeAreaView>
-      <Modal visible={!!image} onRequestClose={()=>setImage(null)}><SafeAreaView style={s.safe}>{button("Close image",()=>setImage(null),true)}{image&&<Image source={{uri:image}} style={s.flex} resizeMode="contain"/>}</SafeAreaView></Modal>
+      <Modal visible={!!image} onRequestClose={()=>setImage(null)}><SafeAreaView style={s.modalSafe}>{button("Close image",()=>setImage(null),true)}{image&&<Image source={{uri:image}} style={s.flex} resizeMode="contain"/>}</SafeAreaView></Modal>
     </Modal>
-    <Modal visible={picker} animationType="slide" onRequestClose={()=>setPicker(false)}><SafeAreaView style={s.safe}>
-      <View style={s.header}><Text style={s.heading}>Receipts · YA {year}</Text>{button("Close",()=>setPicker(false),true)}</View>
-      <ScrollView contentContainerStyle={s.content}>{receipts.length===0&&<Text>No unlinked receipts for this year.</Text>}
-        {receipts.map(r=><Pressable key={r.id} style={s.card} onPress={()=>{
-          setPicker(false);setReceipt(r);setSelectedItems([]);setRulePicker(false);
-          setDraft({...emptyClaim(year),receipt_id:r.id,title:r.merchant_name||"Receipt",amountText:String(r.total_amount),eligibleText:"0",dateText:r.receipt_date});
-        }}><Text style={s.cardTitle}>{r.merchant_name}</Text><Text>{r.receipt_date} · {money(Number(r.total_amount))}</Text></Pressable>)}
-      </ScrollView></SafeAreaView></Modal>
   </SafeAreaView>;
 }
 const s = StyleSheet.create({
-  safe:{flex:1,backgroundColor:"#f3f8f6"},flex:{flex:1},header:{padding:16,flexDirection:"row",alignItems:"center",justifyContent:"space-between",gap:12},
-  heading:{fontSize:23,fontWeight:"700",color:"#093030"},sub:{fontSize:13,color:"#526b64",lineHeight:20},
-  content:{padding:20,gap:14,paddingBottom:48},row:{flexDirection:"row",flexWrap:"wrap",gap:10},
-  hero:{backgroundColor:"#093030",padding:24,borderRadius:22,gap:10},heroLabel:{color:"#d5f4e8",lineHeight:21},total:{fontSize:30,fontWeight:"700",color:"#fff"},
-  card:{backgroundColor:"#fff",padding:18,borderRadius:16,gap:8,borderWidth:1,borderColor:"#dce9e3"},cardTitle:{fontSize:16,fontWeight:"600",color:"#093030"},
-  button:{backgroundColor:"#007e62",padding:14,borderRadius:12,alignItems:"center"},buttonText:{color:"#fff",fontWeight:"600"},
+  safe:{flex:1,backgroundColor:"#007F69"},modalSafe:{flex:1,backgroundColor:"#f7fffb"},flex:{flex:1},
+  page:{flex:1,backgroundColor:"#f7fffb"},
+  header:{minHeight:72,paddingHorizontal:20,alignItems:"center",justifyContent:"center",flexDirection:"row",backgroundColor:"#007F69"},
+  backButton:{position:"absolute",left:20,width:44,height:44,alignItems:"center",justifyContent:"center",borderRadius:16,backgroundColor:"#006A56",zIndex:1},
+  heading:{fontSize:24,fontWeight:"700",color:"#fff",textAlign:"center"},sub:{fontSize:13,color:"#4A665C",lineHeight:20},
+  content:{padding:20,gap:18,paddingBottom:48},row:{flexDirection:"row",flexWrap:"wrap",gap:10},
+  yearTabs:{flexDirection:"row",gap:10},yearTab:{flex:1,alignItems:"center",paddingVertical:14,backgroundColor:"#E5F4ED",borderRadius:18},
+  yearTabActive:{backgroundColor:"#00DAA4"},yearText:{fontSize:15,fontWeight:"600",color:"#23584A"},yearTextActive:{color:"#073F38"},
+  hero:{backgroundColor:"#073F38",padding:24,borderRadius:24,gap:10,overflow:"hidden"},
+  heroAccent:{position:"absolute",top:-76,right:-56,width:190,height:190,borderRadius:95,backgroundColor:"#087C67"},
+  heroLabel:{color:"#DDFBF1",lineHeight:21},total:{fontSize:34,fontWeight:"700",color:"#fff",fontVariant:["tabular-nums"]},
+  actions:{gap:12},addAction:{minHeight:74,paddingHorizontal:18,flexDirection:"row",alignItems:"center",gap:14,borderRadius:20,backgroundColor:"#00DAA4"},
+  actionGrid:{flexDirection:"row",gap:12},scanAction:{flex:1,minHeight:100,padding:16,justifyContent:"space-between",borderRadius:20,backgroundColor:"#1578D4"},
+  photoAction:{flex:1,minHeight:100,padding:16,justifyContent:"space-between",borderRadius:20,backgroundColor:"#7250D6"},
+  actionIcon:{width:42,height:42,alignItems:"center",justifyContent:"center",borderRadius:14,backgroundColor:"#E5FFF5"},
+  actionText:{flex:1,gap:3},actionTitle:{fontSize:16,fontWeight:"700",color:"#fff"},addTitle:{fontSize:16,fontWeight:"700",color:"#073F38"},actionSubtitle:{fontSize:12,color:"#175344"},
+  tabBar:{flexDirection:"row",padding:4,borderRadius:18,backgroundColor:"#E5F4ED"},tab:{flex:1,alignItems:"center",paddingVertical:11,borderRadius:15},
+  tabActive:{backgroundColor:"#00DAA4"},tabText:{fontWeight:"600",color:"#23584A"},tabTextActive:{color:"#073F38"},
+  card:{backgroundColor:"#fff",padding:18,borderRadius:18,gap:8,borderWidth:1,borderColor:"#D8EEE3"},cardTitle:{fontSize:16,fontWeight:"600",color:"#073F38"},
+  button:{backgroundColor:"#007F69",padding:14,borderRadius:12,alignItems:"center"},buttonText:{color:"#fff",fontWeight:"600"},
   secondary:{backgroundColor:"#e0eee8"},secondaryText:{color:"#093030"},disabled:{opacity:0.45},
   chip:{paddingHorizontal:18,paddingVertical:12,borderRadius:22,backgroundColor:"#e3eae7"},chipActive:{backgroundColor:"#8ce3c2"},
   notice:{color:"#83520a",lineHeight:21},empty:{paddingVertical:30,color:"#526b64",lineHeight:24},

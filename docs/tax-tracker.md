@@ -15,7 +15,7 @@ The tracker records user-confirmed YA2025 personal relief claims. It does not ca
 
 All existing LHDN receipts are imported as needs-review claims with zero eligible amount. New tax scans create drafts through a database trigger, compatible with the existing OCR endpoint.
 
-Users can select eligible receipt items, adjust the requested amount, attach an existing receipt without scanning again, or enter a manual claim with a statement reference. The first milestone links one receipt to one claim; mixed receipts across multiple relief rules and direct PDF uploads are not yet supported.
+Users can select eligible receipt items after scanning or choosing a photo, adjust the requested amount, or enter a manual claim with a statement reference. The first milestone links one receipt to one claim; mixed receipts across multiple relief rules and direct PDF uploads are not yet supported. The Tax Relief screen shows only YA2025 and YA2026 and no longer offers a saved-receipt picker.
 
 Only confirmed claims with matching rule versions contribute to the estimate. Sub-limits apply before shared caps. Shared-cap allocation follows rule order and is explained in the breakdown. Amounts are accumulated in sen.
 
