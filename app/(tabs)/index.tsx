@@ -137,7 +137,13 @@ export default function HomeScreen() {
   const [totalExpense, setTotalExpense] = useState<number>(0);
   const [profileMonthlyIncome, setProfileMonthlyIncome] = useState(0);
   const [chartMonth, setChartMonth] = useState(monthStartString());
-  const [chartRows, setChartRows] = useState<MonthlySpendingRow[]>([]);
+  const [chartSnapshot, setChartSnapshot] = useState<{
+    month: string;
+    rows: MonthlySpendingRow[];
+    budget: number;
+    budgetUnavailable: boolean;
+  } | null>(null);
+  const [chartDirection, setChartDirection] = useState<"previous" | "next">("next");
   const [chartLoading, setChartLoading] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
   const chartRequestRef = useRef(0);
@@ -152,8 +158,8 @@ export default function HomeScreen() {
   const [showConfetti, setShowConfetti] = useState(false);
   const prevStreakRef = useRef<number>(0);
   const monthlySpending = React.useMemo(
-    () => summarizeMonthlySpending(chartRows, profileMonthlyIncome),
-    [chartRows, profileMonthlyIncome],
+    () => summarizeMonthlySpending(chartSnapshot?.rows ?? [], profileMonthlyIncome),
+    [chartSnapshot, profileMonthlyIncome],
   );
 
   useEffect(() => {
@@ -216,7 +222,6 @@ export default function HomeScreen() {
     const requestId = ++chartRequestRef.current;
     setChartLoading(true);
     setChartError(null);
-    setChartRows([]);
 
     try {
       const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -225,6 +230,13 @@ export default function HomeScreen() {
 
       const pageSize = 500;
       const rows: MonthlySpendingRow[] = [];
+      const budgetResult = Promise.resolve(supabase
+        .from("budgets")
+        .select("amount")
+        .eq("user_id", user.id)
+        .eq("month_start", chartMonth)
+        .eq("category", "ALL")
+        .maybeSingle());
       const monthEnd = shiftMonth(chartMonth, 1);
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -248,11 +260,21 @@ export default function HomeScreen() {
         if (!data || data.length < pageSize) break;
       }
 
-      if (requestId === chartRequestRef.current) setChartRows(rows);
+      const { data: budget, error: budgetError } = await budgetResult;
+      if (budgetError) console.log("Home: chart budget error", budgetError);
+
+      if (requestId === chartRequestRef.current) {
+        setChartSnapshot({
+          month: chartMonth,
+          rows,
+          budget: Math.max(0, Number(budget?.amount) || 0),
+          budgetUnavailable: Boolean(budgetError),
+        });
+      }
     } catch (error) {
       console.log("Home: monthly spending error", error);
       if (requestId === chartRequestRef.current) {
-        setChartError("Could not load this month. Pull down to retry.");
+        setChartError("Could not load this month.");
       }
     } finally {
       if (requestId === chartRequestRef.current) setChartLoading(false);
@@ -589,15 +611,18 @@ export default function HomeScreen() {
   }, [loadData, loadMonthlyChart]);
 
   const showPreviousMonth = React.useCallback(() => {
-    setChartMonth((month) => shiftMonth(month, -1));
-  }, []);
+    if (chartLoading) return;
+    setChartDirection("previous");
+    setChartMonth(shiftMonth(chartSnapshot?.month ?? chartMonth, -1));
+  }, [chartLoading, chartMonth, chartSnapshot]);
 
   const showNextMonth = React.useCallback(() => {
-    setChartMonth((month) => {
-      const next = shiftMonth(month, 1);
-      return next <= monthStartString() ? next : month;
-    });
-  }, []);
+    if (chartLoading) return;
+    const next = shiftMonth(chartSnapshot?.month ?? chartMonth, 1);
+    if (next > monthStartString()) return;
+    setChartDirection("next");
+    setChartMonth(next);
+  }, [chartLoading, chartMonth, chartSnapshot]);
 
   let suggestion = "Keep tracking your spending to build better habits.";
   if (progressPercent >= 80) {
@@ -715,16 +740,22 @@ export default function HomeScreen() {
           </View>
 
           <MonthlySpendingChart
-            month={chartMonth}
+            month={chartSnapshot?.month ?? chartMonth}
+            pendingMonth={chartMonth}
+            direction={chartDirection}
             categories={monthlySpending.categories}
             total={monthlySpending.total}
             income={monthlySpending.income}
             incomeSource={monthlySpending.incomeSource}
+            budget={chartSnapshot?.budget ?? 0}
+            budgetUnavailable={chartSnapshot?.budgetUnavailable ?? false}
+            hasData={chartSnapshot !== null}
             loading={chartLoading}
             error={chartError}
-            canGoNext={chartMonth < monthStartString()}
+            canGoNext={!chartLoading && (chartSnapshot?.month ?? chartMonth) < monthStartString()}
             onPrevious={showPreviousMonth}
             onNext={showNextMonth}
+            onRetry={loadMonthlyChart}
           />
 
           <View style={styles.insightsCard}>

@@ -50,6 +50,10 @@ test("monthly spending nets refunds and uses recorded income first", () => {
     { category: "ENTERTAINMENT", amount: 200 },
     { category: "GROCERIES", amount: 100 },
   ]);
+  assert.equal(
+    summary.categories.reduce((sum, item) => sum + item.amount / summary.total, 0),
+    1,
+  );
   assert.equal((summary.categories[0].amount / summary.income) * 100, 20);
 });
 
