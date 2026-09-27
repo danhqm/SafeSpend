@@ -135,6 +135,51 @@ export function expenseEffect(
   return 0;
 }
 
+export type MonthlySpendingRow = Pick<
+  LedgerTransaction,
+  "transaction_type" | "amount" | "category"
+>;
+
+export function summarizeMonthlySpending(
+  rows: MonthlySpendingRow[],
+  profileMonthlyIncome: number,
+) {
+  const netByCategory: Record<string, number> = {};
+  let recordedIncome = 0;
+
+  for (const row of rows) {
+    if (row.transaction_type === "income") {
+      recordedIncome += Math.max(0, Number(row.amount) || 0);
+      continue;
+    }
+
+    const category = EXPENSE_CATEGORIES.includes(
+      row.category as (typeof EXPENSE_CATEGORIES)[number],
+    )
+      ? row.category
+      : "OTHER";
+    netByCategory[category] =
+      (netByCategory[category] || 0) +
+      expenseEffect(row.transaction_type, row.amount);
+  }
+
+  const categories = Object.entries(netByCategory)
+    .map(([category, amount]) => ({ category, amount: Math.max(0, amount) }))
+    .filter(({ amount }) => amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+  const total = categories.reduce((sum, item) => sum + item.amount, 0);
+  const estimatedIncome = Math.max(0, Number(profileMonthlyIncome) || 0);
+  const income = recordedIncome > 0 ? recordedIncome : estimatedIncome;
+
+  return {
+    categories,
+    total,
+    income,
+    incomeSource: recordedIncome > 0 ? ("recorded" as const) :
+      estimatedIncome > 0 ? ("profile" as const) : ("none" as const),
+  };
+}
+
 export function formatAccountType(accountType: AccountType) {
   if (accountType === "e_wallet") return "E-wallet";
   if (accountType === "credit_card") return "Credit card";

@@ -13,28 +13,23 @@ import {
 } from "react-native";
 import ConfettiCannon from "react-native-confetti-cannon";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { expenseEffect, localDateString } from "../../types/finance";
+import { MonthlySpendingChart } from "../../components/monthly-spending-chart";
+import {
+  EXPENSE_CATEGORIES,
+  expenseEffect,
+  localDateString,
+  monthStartString,
+  shiftMonth,
+  summarizeMonthlySpending,
+  type MonthlySpendingRow,
+} from "../../types/finance";
 import { setupSmartNotifications } from "../../utils/notifications";
 import { authenticatedApiFetch } from "../../utils/api";
 import { supabase } from "../../utils/supabase";
 
 const PRIMARY = "#00D09E";
 
-const CATEGORY_COLORS: Record<string, string> = {
-  FOOD_AND_DRINK: "#FF6B6B",
-  GROCERIES: "#22C55E",
-  TRANSPORT: "#F59E0B",
-  SHOPPING: "#3B82F6",
-  BILLS: "#8B5CF6",
-  ENTERTAINMENT: "#EC4899",
-  HEALTHCARE: "#14B8A6",
-  EDUCATION: "#6366F1",
-  HOUSING: "#A16207",
-  OTHER: "#9CA3AF",
-};
-
 type WeeklyPoint = {
-  label: string;
   total: number;
   categories: Record<string, number>;
 };
@@ -133,21 +128,6 @@ function finSentence(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
-function formatWeekLabel(startOfWeek: Date) {
-  const end = new Date(startOfWeek);
-  end.setDate(startOfWeek.getDate() + 6);
-
-  const monthShort = (d: Date) => d.toLocaleString("en-GB", { month: "short" });
-
-  const day = (d: Date) => d.getDate();
-
-  if (startOfWeek.getMonth() === end.getMonth()) {
-    return `Week of ${day(startOfWeek)}–${day(end)} ${monthShort(end)}`;
-  }
-
-  return `Week of ${day(startOfWeek)} ${monthShort(startOfWeek)} – ${day(end)} ${monthShort(end)}`;
-}
-
 export default function HomeScreen() {
   const router = useRouter();
 
@@ -155,13 +135,12 @@ export default function HomeScreen() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [monthlyBudget, setMonthlyBudget] = useState<number>(0);
   const [totalExpense, setTotalExpense] = useState<number>(0);
-  const [weeklyData, setWeeklyData] = useState<WeeklyPoint[]>(
-    Array.from({ length: 7 }, (_, i) => ({
-      label: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i],
-      total: 0,
-      categories: {},
-    })),
-  );
+  const [profileMonthlyIncome, setProfileMonthlyIncome] = useState(0);
+  const [chartMonth, setChartMonth] = useState(monthStartString());
+  const [chartRows, setChartRows] = useState<MonthlySpendingRow[]>([]);
+  const [chartLoading, setChartLoading] = useState(true);
+  const [chartError, setChartError] = useState<string | null>(null);
+  const chartRequestRef = useRef(0);
   const [monthReceiptCount, setMonthReceiptCount] = useState<number>(0);
   const [streakCount, setStreakCount] = useState<number>(0);
   const [insights, setInsights] = useState<string[]>([]);
@@ -170,9 +149,12 @@ export default function HomeScreen() {
   const status = getSmartStatus(totalExpense, monthlyBudget);
   const [aiInsights, setAiInsights] = useState<string[] | null>(null);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
-  const [weekLabel, setWeekLabel] = useState<string>("");
   const [showConfetti, setShowConfetti] = useState(false);
   const prevStreakRef = useRef<number>(0);
+  const monthlySpending = React.useMemo(
+    () => summarizeMonthlySpending(chartRows, profileMonthlyIncome),
+    [chartRows, profileMonthlyIncome],
+  );
 
   useEffect(() => {
     void setupSmartNotifications();
@@ -230,6 +212,53 @@ export default function HomeScreen() {
     }
   }, []);
 
+  const loadMonthlyChart = React.useCallback(async () => {
+    const requestId = ++chartRequestRef.current;
+    setChartLoading(true);
+    setChartError(null);
+    setChartRows([]);
+
+    try {
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const user = authData?.user;
+      if (authError || !user) throw authError ?? new Error("Please sign in again.");
+
+      const pageSize = 500;
+      const rows: MonthlySpendingRow[] = [];
+      const monthEnd = shiftMonth(chartMonth, 1);
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const endExclusive = chartMonth === monthStartString()
+        ? localDateString(tomorrow)
+        : monthEnd;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase
+          .from("transactions")
+          .select("id, amount, category, transaction_type")
+          .eq("user_id", user.id)
+          .eq("status", "posted")
+          .in("transaction_type", ["expense", "refund", "income"])
+          .gte("occurred_on", chartMonth)
+          .lt("occurred_on", endExclusive)
+          .order("id", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+
+        if (error) throw error;
+        rows.push(...((data ?? []) as MonthlySpendingRow[]));
+        if (!data || data.length < pageSize) break;
+      }
+
+      if (requestId === chartRequestRef.current) setChartRows(rows);
+    } catch (error) {
+      console.log("Home: monthly spending error", error);
+      if (requestId === chartRequestRef.current) {
+        setChartError("Could not load this month. Pull down to retry.");
+      }
+    } finally {
+      if (requestId === chartRequestRef.current) setChartLoading(false);
+    }
+  }, [chartMonth]);
+
   const loadData = React.useCallback(async () => {
     const { data: authData, error: authError } = await supabase.auth.getUser();
     const user = authData?.user;
@@ -256,8 +285,8 @@ export default function HomeScreen() {
       const rawIncome = profile.monthly_income;
       if (typeof rawIncome === "number") incomeNum = rawIncome;
       else incomeNum = parseFloat(rawIncome ?? "0");
-
     }
+    setProfileMonthlyIncome(Number.isFinite(incomeNum) ? incomeNum : 0);
 
     const today = new Date();
     const todayStr = localDateString(today);
@@ -333,19 +362,18 @@ export default function HomeScreen() {
 
     const startOfWeek = new Date(todayAtMidnight);
     startOfWeek.setDate(todayAtMidnight.getDate() - diffToMonday);
-    setWeekLabel(formatWeekLabel(startOfWeek));
 
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 7);
 
     const points: WeeklyPoint[] = [
-      { label: "Mon", total: 0, categories: {} },
-      { label: "Tue", total: 0, categories: {} },
-      { label: "Wed", total: 0, categories: {} },
-      { label: "Thu", total: 0, categories: {} },
-      { label: "Fri", total: 0, categories: {} },
-      { label: "Sat", total: 0, categories: {} },
-      { label: "Sun", total: 0, categories: {} },
+      { total: 0, categories: {} },
+      { total: 0, categories: {} },
+      { total: 0, categories: {} },
+      { total: 0, categories: {} },
+      { total: 0, categories: {} },
+      { total: 0, categories: {} },
+      { total: 0, categories: {} },
     ];
 
     const weekStartStr = localDateString(startOfWeek);
@@ -369,7 +397,9 @@ export default function HomeScreen() {
         const idx = js === 0 ? 6 : js - 1;
         const amount = expenseEffect(row.transaction_type, row.amount);
         const rawCat = (row.category || "OTHER") as string;
-        const cat = CATEGORY_COLORS[rawCat] ? rawCat : "OTHER";
+        const cat = EXPENSE_CATEGORIES.includes(rawCat as (typeof EXPENSE_CATEGORIES)[number])
+          ? rawCat
+          : "OTHER";
 
         points[idx].total += amount;
         points[idx].categories[cat] =
@@ -385,8 +415,6 @@ export default function HomeScreen() {
           0,
         );
       });
-
-      setWeeklyData(points);
     }
 
     const weeklyTotal = points.reduce((acc, p) => acc + p.total, 0);
@@ -538,17 +566,38 @@ export default function HomeScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      loadData();
+      void loadData();
     }, [loadData]),
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadMonthlyChart();
+      return () => {
+        chartRequestRef.current += 1;
+      };
+    }, [loadMonthlyChart]),
   );
 
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  }, [loadData]);
+    try {
+      await Promise.all([loadData(), loadMonthlyChart()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadData, loadMonthlyChart]);
 
-  const maxWeekly = Math.max(...weeklyData.map((p) => p.total), 1);
+  const showPreviousMonth = React.useCallback(() => {
+    setChartMonth((month) => shiftMonth(month, -1));
+  }, []);
+
+  const showNextMonth = React.useCallback(() => {
+    setChartMonth((month) => {
+      const next = shiftMonth(month, 1);
+      return next <= monthStartString() ? next : month;
+    });
+  }, []);
 
   let suggestion = "Keep tracking your spending to build better habits.";
   if (progressPercent >= 80) {
@@ -665,77 +714,18 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.sectionTitle}>Your Spending Pattern</Text>
-
-          <Text style={styles.weekLabel}>{weekLabel}</Text>
-
-          <View style={styles.chartCard}>
-            <View style={styles.chartHeaderRow}>
-              <Text style={styles.chartTitle}>Weekly Expenses</Text>
-              <View style={styles.chartIconBubble}>
-                <Ionicons name="calendar-outline" size={18} color="#093030" />
-              </View>
-            </View>
-
-            <View style={styles.chartBody}>
-              {weeklyData.map((point, idx) => {
-                const height =
-                  maxWeekly > 0 ? 20 + (80 * point.total) / maxWeekly : 20;
-
-                const categories = Object.entries(point.categories);
-
-                return (
-                  <View key={idx} style={styles.barWrapper}>
-                    <View style={[styles.bar, { height }]}>
-                      {point.total > 0 && categories.length > 0 ? (
-                        categories.map(([cat, amount]) => {
-                          const ratio = Number(amount) / point.total || 0;
-                          const segmentHeight = ratio * height;
-                          const color = CATEGORY_COLORS[cat] || "#9CA3AF";
-
-                          return (
-                            <View
-                              key={cat}
-                              style={{
-                                width: "100%",
-                                height: segmentHeight,
-                                backgroundColor: color,
-                              }}
-                            />
-                          );
-                        })
-                      ) : (
-                        <View
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            backgroundColor: "#E5E7EB",
-                          }}
-                        />
-                      )}
-                    </View>
-                    <Text style={styles.barLabel}>{point.label}</Text>
-                  </View>
-                );
-              })}
-            </View>
-
-            <View style={styles.legendRow}>
-              {Object.entries(CATEGORY_COLORS).map(([key, color]) => (
-                <View key={key} style={styles.legendItem}>
-                  <View
-                    style={[styles.legendDot, { backgroundColor: color }]}
-                  />
-                  <Text style={styles.legendLabel}>
-                    {key
-                      .replace(/_/g, " ")
-                      .toLowerCase()
-                      .replace(/\b\w/g, (c) => c.toUpperCase())}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
+          <MonthlySpendingChart
+            month={chartMonth}
+            categories={monthlySpending.categories}
+            total={monthlySpending.total}
+            income={monthlySpending.income}
+            incomeSource={monthlySpending.incomeSource}
+            loading={chartLoading}
+            error={chartError}
+            canGoNext={chartMonth < monthStartString()}
+            onPrevious={showPreviousMonth}
+            onNext={showNextMonth}
+          />
 
           <View style={styles.insightsCard}>
             <Text style={styles.insightsTitle}>Fin&apos;s Insights</Text>
@@ -1028,66 +1018,6 @@ const styles = StyleSheet.create({
     color: "#093030",
   },
 
-  sectionTitle: {
-    textAlign: "center",
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#093030",
-    marginBottom: 4,
-  },
-  chartCard: {
-    backgroundColor: "#E9FFF4",
-    borderRadius: 26,
-    padding: 16,
-    marginBottom: 16,
-  },
-  chartHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  chartTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#093030",
-  },
-  chartIconBubble: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#C7F2D9",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  chartBody: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    marginTop: 12,
-  },
-  barWrapper: {
-    alignItems: "center",
-    flex: 1,
-  },
-  bar: {
-    width: 10,
-    borderRadius: 6,
-    overflow: "hidden",
-    backgroundColor: "#E5E7EB",
-    flexDirection: "column-reverse",
-  },
-  barLabel: {
-    fontSize: 10,
-    color: "#093030",
-    marginTop: 4,
-  },
-  chartSummaryText: {
-    marginTop: 10,
-    fontSize: 12,
-    color: "#093030",
-  },
   insightsCard: {
     marginTop: 16,
     padding: 14,
@@ -1175,35 +1105,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#093030",
     fontWeight: "600",
-  },
-  legendRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: 8,
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginRight: 10,
-    marginBottom: 4,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 4,
-  },
-  legendLabel: {
-    fontSize: 10,
-    color: "#093030",
-  },
-  weekLabel: {
-    marginTop: 5,
-    marginBottom: 16,
-    fontWeight: "600",
-    textAlign: "center",
-    fontSize: 18,
-    color: "#093030",
   },
   streakGlowCard: {
     borderWidth: 1.5,
