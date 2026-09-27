@@ -1,6 +1,6 @@
 # SafeSpend
 
-SafeSpend is an Expo/React Native personal-finance app for tracking receipts, weekly spending, goals, learning progress, and Malaysian LHDN tax-relief claims. A small Vercel Functions backend authenticates requests, performs receipt OCR with OpenAI, and generates financial insights. Supabase provides Auth, Postgres, and private image storage.
+SafeSpend is an Expo/React Native personal-finance app for tracking receipts, monthly spending, goals, learning progress, and Malaysian LHDN tax-relief claims. A small Vercel Functions backend authenticates requests, performs receipt OCR with OpenAI, and generates financial insights. Supabase provides Auth, Postgres, and private image storage.
 
 ## Financial data model
 
@@ -11,6 +11,13 @@ SafeSpend is an Expo/React Native personal-finance app for tracking receipts, we
 - Receipt-backed transactions open the original private image with a short-lived signed URL; permanent storage paths are never exposed as public links.
 - LHDN scans remain immediately posted so they continue to count as real expenses while also contributing to tax-relief estimates.
 - Reports use `occurred_on`, the financial event date, rather than the upload timestamp.
+
+## Fin's Analysis
+
+- The backend reads the signed-in user's confirmed ledger entries, monthly budgets, account types, and recent goals. It does not accept financial totals supplied by the phone.
+- Fin receives aggregated monthly and last-90-day patterns, not raw receipt images or transaction notes. Draft receipts, internal transfers, non-MYR transactions, tax claims, and learning progress are excluded.
+- The analysis uses up to the latest 5,000 posted transactions. If that limit is reached, the app labels the result as a recent-history sample.
+- Spending totals account for refunds; purchase frequency counts expenses only. The current partial month is compared only with the same elapsed period of the prior month.
 
 ## Security model
 
@@ -55,6 +62,7 @@ npm run typecheck
 npm test
 cd chatbot-backend
 npm run check
+npm test
 ```
 
 ## Deployment checklist

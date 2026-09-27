@@ -14,7 +14,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MonthlySpendingChart } from "../../components/monthly-spending-chart";
 import {
-  EXPENSE_CATEGORIES,
   expenseEffect,
   localDateString,
   monthStartString,
@@ -27,17 +26,8 @@ import { authenticatedApiFetch } from "../../utils/api";
 import { supabase } from "../../utils/supabase";
 
 const PRIMARY = "#00D09E";
-
-type WeeklyPoint = {
-  total: number;
-  categories: Record<string, number>;
-};
-
-function getDateNDaysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return localDateString(d);
-}
+const INSIGHT_ACCENTS = ["#00A884", "#2775E8", "#F5A524"];
+const INSIGHT_BACKGROUNDS = ["#E8FFF5", "#EAF3FF", "#FFF5E2"];
 
 function getSmartStatus(totalExpense: number, monthlyBudget: number) {
   if (!monthlyBudget || monthlyBudget <= 0) {
@@ -96,11 +86,6 @@ function getSmartStatus(totalExpense: number, monthlyBudget: number) {
   };
 }
 
-function finSentence(s: string): string {
-  if (!s) return "";
-  return s.charAt(0).toLowerCase() + s.slice(1);
-}
-
 export default function HomeScreen() {
   const router = useRouter();
 
@@ -120,12 +105,15 @@ export default function HomeScreen() {
   const [chartLoading, setChartLoading] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
   const chartRequestRef = useRef(0);
-  const [insights, setInsights] = useState<string[]>([]);
   const [lastReceipt, setLastReceipt] = useState<any | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const status = getSmartStatus(totalExpense, monthlyBudget);
   const [aiInsights, setAiInsights] = useState<string[] | null>(null);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
+  const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
+  const [analysisTransactionCount, setAnalysisTransactionCount] = useState<number | null>(null);
+  const [analysisHistoryLimited, setAnalysisHistoryLimited] = useState(false);
+  const analysisRequestRef = useRef(0);
   const monthlySpending = React.useMemo(
     () => summarizeMonthlySpending(chartSnapshot?.rows ?? [], profileMonthlyIncome),
     [chartSnapshot, profileMonthlyIncome],
@@ -140,29 +128,40 @@ export default function HomeScreen() {
       ? Math.min(100, Math.round((totalExpense / monthlyBudget) * 100))
       : 0;
 
-  const fetchAIInsights = React.useCallback(async (payload: any) => {
+  const fetchAIInsights = React.useCallback(async () => {
+    const requestId = ++analysisRequestRef.current;
     try {
       setAiInsightsLoading(true);
+      setAiInsightsError(null);
       setAiInsights(null);
 
       const resp = await authenticatedApiFetch("/api/fin-insights", {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: "{}",
       });
-
-      const text = await resp.text();
-      if (!text.trim().startsWith("{") && !text.trim().startsWith("[")) {
-        console.log("Not JSON response (likely HTML). Check API URL/route.");
-        return;
+      if (!resp.ok) throw new Error(`Fin analysis request failed (${resp.status})`);
+      const json = await resp.json();
+      if (json.analysisVersion !== 2 || !Array.isArray(json.insights)) {
+        throw new Error("Fin analysis service is not updated yet");
       }
-
-      const json = JSON.parse(text);
-
-      setAiInsights(json.insights);
+      const lines = json.insights.filter(
+        (value: unknown): value is string => typeof value === "string" && value.trim().length > 0,
+      ).slice(0, 3);
+      if (lines.length === 0) throw new Error("Fin returned no analysis");
+      if (requestId === analysisRequestRef.current) {
+        setAiInsights(lines);
+        setAnalysisTransactionCount(
+          Number.isInteger(json.recordedTransactions) ? json.recordedTransactions : null,
+        );
+        setAnalysisHistoryLimited(Boolean(json.historyLimited));
+      }
     } catch (err) {
-      console.log("Fin insights fetch error:", err);
+      console.log("Fin analysis fetch error:", err);
+      if (requestId === analysisRequestRef.current) {
+        setAiInsightsError("Fin's analysis is unavailable. Pull down to retry.");
+      }
     } finally {
-      setAiInsightsLoading(false);
+      if (requestId === analysisRequestRef.current) setAiInsightsLoading(false);
     }
   }, []);
 
@@ -237,6 +236,8 @@ export default function HomeScreen() {
       console.log("Home: no user", authError);
       return;
     }
+
+    const analysisPromise = fetchAIInsights();
 
     let incomeNum = 0;
 
@@ -321,202 +322,7 @@ export default function HomeScreen() {
       setLastReceipt(null);
     }
 
-    const todayAtMidnight = new Date();
-    todayAtMidnight.setHours(0, 0, 0, 0);
-
-    const jsDay = todayAtMidnight.getDay();
-    const diffToMonday = (jsDay + 6) % 7;
-
-    const startOfWeek = new Date(todayAtMidnight);
-    startOfWeek.setDate(todayAtMidnight.getDate() - diffToMonday);
-
-    const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 7);
-
-    const points: WeeklyPoint[] = [
-      { total: 0, categories: {} },
-      { total: 0, categories: {} },
-      { total: 0, categories: {} },
-      { total: 0, categories: {} },
-      { total: 0, categories: {} },
-      { total: 0, categories: {} },
-      { total: 0, categories: {} },
-    ];
-
-    const weekStartStr = localDateString(startOfWeek);
-    const weekEndStr = localDateString(endOfWeek);
-
-    const { data: weekTransactions, error: weekError } = await supabase
-      .from("transactions")
-      .select("amount, occurred_on, category, transaction_type")
-      .eq("user_id", user.id)
-      .eq("status", "posted")
-      .in("transaction_type", ["expense", "refund"])
-      .gte("occurred_on", weekStartStr)
-      .lt("occurred_on", weekEndStr);
-
-    if (weekError) {
-      console.log("Home: week transactions error", weekError);
-    } else {
-      (weekTransactions || []).forEach((row: any) => {
-        const transactionDate = new Date(`${row.occurred_on}T00:00:00`);
-        const js = transactionDate.getDay();
-        const idx = js === 0 ? 6 : js - 1;
-        const amount = expenseEffect(row.transaction_type, row.amount);
-        const rawCat = (row.category || "OTHER") as string;
-        const cat = EXPENSE_CATEGORIES.includes(rawCat as (typeof EXPENSE_CATEGORIES)[number])
-          ? rawCat
-          : "OTHER";
-
-        points[idx].total += amount;
-        points[idx].categories[cat] =
-          (points[idx].categories[cat] || 0) + amount;
-      });
-
-      points.forEach((point) => {
-        point.categories = Object.fromEntries(
-          Object.entries(point.categories).filter(([, amount]) => amount > 0),
-        );
-        point.total = Object.values(point.categories).reduce(
-          (sum, amount) => sum + amount,
-          0,
-        );
-      });
-    }
-
-    const weeklyTotal = points.reduce((acc, p) => acc + p.total, 0);
-
-    const byCat: Record<string, number> = {};
-    points.forEach((p) => {
-      Object.entries(p.categories).forEach(([cat, amt]) => {
-        byCat[cat] = (byCat[cat] || 0) + Number(amt || 0);
-      });
-    });
-
-    const topCategories = Object.entries(byCat)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([category, amount]) => ({
-        category,
-        amount: Number(amount.toFixed(2)),
-      }));
-
-    const { data: weekGoals, error: goalsErr } = await supabase
-      .from("user_goals")
-      .select("title, notes, completed, week_start")
-      .eq("user_id", user.id)
-      .eq("week_start", weekStartStr);
-
-    if (goalsErr) console.log("Home: goals error", goalsErr);
-
-    const weeklyIncomeEstimate = incomeNum > 0 ? incomeNum / 4 : 0;
-
-    const payload = {
-      currency: "MYR",
-      month: today.getMonth() + 1,
-      year: today.getFullYear(),
-      monthlyIncome: incomeNum,
-      weeklyIncomeEstimate,
-      weekStartStr,
-      weekEndStr,
-      weeklyExpense: Number(weeklyTotal.toFixed(2)),
-      topSpendCategories: topCategories,
-      weeklyGoals: (weekGoals || []).map((g: any) => ({
-        title: g.title,
-        notes: g.notes,
-        completed: g.completed,
-        week_start: g.week_start,
-      })),
-    };
-
-    await fetchAIInsights(payload);
-
-    const fourteenDaysAgoStr = getDateNDaysAgo(13);
-
-    const { data: insightTransactions, error: insightError } = await supabase
-      .from("transactions")
-      .select("amount, category, occurred_on, transaction_type")
-      .eq("user_id", user.id)
-      .eq("status", "posted")
-      .in("transaction_type", ["expense", "refund"])
-      .gte("occurred_on", fourteenDaysAgoStr)
-      .lte("occurred_on", todayStr);
-
-    if (insightError) {
-      console.log("Home: insight transactions error", insightError);
-      setInsights([]);
-    } else if (insightTransactions) {
-      const now = new Date();
-      const startOfThisWeek = new Date(now);
-      startOfThisWeek.setDate(now.getDate() - now.getDay());
-      startOfThisWeek.setHours(0, 0, 0, 0);
-
-      const startOfLastWeek = new Date(startOfThisWeek);
-      startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
-
-      const thisWeekByCat: Record<string, number> = {};
-      const lastWeekByCat: Record<string, number> = {};
-      let thisWeekTotal = 0;
-      let lastWeekTotal = 0;
-
-      (insightTransactions || []).forEach((row: any) => {
-        const date = new Date(`${row.occurred_on}T00:00:00`);
-        const amount = expenseEffect(row.transaction_type, row.amount);
-        const cat = (row.category || "OTHER") as string;
-
-        if (date >= startOfThisWeek) {
-          thisWeekByCat[cat] = (thisWeekByCat[cat] || 0) + amount;
-          thisWeekTotal += amount;
-        } else if (date >= startOfLastWeek && date < startOfThisWeek) {
-          lastWeekByCat[cat] = (lastWeekByCat[cat] || 0) + amount;
-          lastWeekTotal += amount;
-        }
-      });
-
-      const newInsights: string[] = [];
-      let topCategory: string | null = null;
-      let topAmount = 0;
-      for (const cat in thisWeekByCat) {
-        if (thisWeekByCat[cat] > topAmount) {
-          topAmount = thisWeekByCat[cat];
-          topCategory = cat;
-        }
-      }
-
-      if (topCategory) {
-        newInsights.push(
-          `🏅 Highest spending this week: ${topCategory
-            .replace(/_/g, " ")
-            .toLowerCase()
-            .replace(/\b\w/g, (c) =>
-              c.toUpperCase(),
-            )} (RM${topAmount.toFixed(2)}).`,
-        );
-      }
-
-      if (lastWeekTotal > 0) {
-        const diff = thisWeekTotal - lastWeekTotal;
-        const pct = Math.round((diff / lastWeekTotal) * 100);
-
-        if (pct > 0) {
-          newInsights.push(
-            `📈 Your total spending is up ${pct}% compared to last week.`,
-          );
-        } else if (pct < 0) {
-          newInsights.push(
-            `📉 Your total spending is down ${Math.abs(pct)}% compared to last week. Nice job!`,
-          );
-        } else {
-          newInsights.push(`⚖️ Your spending is about the same as last week.`);
-        }
-      } else if (thisWeekTotal > 0) {
-        newInsights.push(
-          `🆕 You started tracking this week with RM${thisWeekTotal.toFixed(2)} recorded.`,
-        );
-      }
-
-      setInsights(newInsights);
-    }
+    await analysisPromise;
   }, [fetchAIInsights]);
 
   useFocusEffect(
@@ -556,18 +362,6 @@ export default function HomeScreen() {
     setChartDirection("next");
     setChartMonth(next);
   }, [chartLoading, chartMonth, chartSnapshot]);
-
-  let suggestion = "Keep tracking your spending to build better habits.";
-  if (progressPercent >= 80) {
-    suggestion =
-      "You’ve used most of your monthly budget. Try slowing down non-essential spending.";
-  } else if (progressPercent >= 50) {
-    suggestion =
-      "You’re halfway through your budget this month. Review your transactions to stay on track.";
-  } else if (progressPercent > 0 && progressPercent < 50) {
-    suggestion =
-      "Nice! Your spending is under 50% of your budget. Keep tracking consistently.";
-  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -692,43 +486,54 @@ export default function HomeScreen() {
           />
 
           <View style={styles.insightsCard}>
-            <Text style={styles.insightsTitle}>Fin&apos;s Insights</Text>
+            <View style={styles.insightsHeader}>
+              <View style={styles.insightsHeaderAccent} />
+              <View style={styles.insightsHeaderCopy}>
+                <Text style={styles.insightsTitle}>Fin&apos;s Analysis</Text>
+                <Text style={styles.insightsSubtitle}>
+                  Patterns from your confirmed financial activity
+                </Text>
+              </View>
+            </View>
 
             {aiInsightsLoading && (
-              <Text style={styles.insightsText}>
-                Fin is analysing your recent receipts...
+              <Text style={styles.insightsMessage}>
+                Fin is reviewing your spending habits...
               </Text>
             )}
 
             {!aiInsightsLoading && aiInsights && aiInsights.length > 0 && (
-              <View style={{ marginTop: 12 }}>
-                {aiInsights.map((line, index) => (
-                  <Text key={index} style={styles.insightsText}>
-                    • {line}
+              <View style={styles.insightsList}>
+                {analysisTransactionCount !== null && (
+                  <Text style={styles.insightsCoverage}>
+                    Based on {analysisHistoryLimited ? "the latest " : ""}
+                    {analysisTransactionCount} confirmed transactions
                   </Text>
+                )}
+                {aiInsights.map((line, index) => (
+                  <View
+                    key={`${index}-${line}`}
+                    style={[
+                      styles.insightRow,
+                      { backgroundColor: INSIGHT_BACKGROUNDS[index % INSIGHT_BACKGROUNDS.length] },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.insightBullet,
+                        { backgroundColor: INSIGHT_ACCENTS[index % INSIGHT_ACCENTS.length] },
+                      ]}
+                    />
+                    <Text selectable style={styles.insightText}>{line}</Text>
+                  </View>
                 ))}
               </View>
             )}
 
-            {!aiInsightsLoading && (!aiInsights || aiInsights.length === 0) && (
-              <View>
-                <Text style={styles.insightsText}>
-                  Fin found out that {finSentence(suggestion)}
-                </Text>
-
-                {insights.length > 0 && (
-                  <View style={{ marginTop: 8 }}>
-                    <Text style={[styles.insightsText, { marginBottom: 4 }]}>
-                      Here&apos;s what else Fin noticed:
-                    </Text>
-                    {insights.map((line, index) => (
-                      <Text key={index} style={styles.insightsText}>
-                        • {line}
-                      </Text>
-                    ))}
-                  </View>
-                )}
-              </View>
+            {!aiInsightsLoading && (aiInsightsError || !aiInsights) && (
+              <Text selectable style={styles.insightsMessage}>
+                {aiInsightsError ?? "Fin's analysis will appear once your records load."}
+              </Text>
             )}
           </View>
 
@@ -916,24 +721,68 @@ const styles = StyleSheet.create({
 
   insightsCard: {
     marginTop: 16,
-    padding: 14,
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    backgroundColor: "#F4FBF7",
+    padding: 18,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#CFEFE2",
     marginBottom: 16,
   },
-  insightsTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#093030",
-    marginBottom: 4,
+  insightsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
-  insightsText: {
-    fontSize: 11,
+  insightsHeaderAccent: {
+    width: 5,
+    height: 46,
+    borderRadius: 99,
+    backgroundColor: "#00C995",
+  },
+  insightsHeaderCopy: { flex: 1 },
+  insightsTitle: {
+    fontSize: 20,
+    fontWeight: "800",
     color: "#093030",
-    lineHeight: 22,
-    marginBottom: 10,
+  },
+  insightsSubtitle: {
+    fontSize: 12,
+    color: "#41635D",
+    lineHeight: 18,
+    marginTop: 2,
+  },
+  insightsList: { gap: 10, marginTop: 16 },
+  insightsCoverage: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#59736D",
+  },
+  insightRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 15,
+    borderRadius: 16,
+  },
+  insightBullet: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 6,
+  },
+  insightText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "600",
+    color: "#093030",
+  },
+  insightsMessage: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#41635D",
+    marginTop: 16,
   },
   badgeRow: {
     flexDirection: "row",
