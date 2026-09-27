@@ -15,6 +15,10 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'doc.text': 'receipt',
+  'pencil': 'edit',
+  'calendar': 'event',
+  'tag': 'sell',
 } as const satisfies Record<string, ComponentProps<typeof MaterialIcons>['name']>;
 
 type IconSymbolName = keyof typeof MAPPING;

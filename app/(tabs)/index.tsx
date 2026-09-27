@@ -13,8 +13,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MonthlySpendingChart } from "../../components/monthly-spending-chart";
+import { IconSymbol } from "../../components/ui/icon-symbol";
 import {
   expenseEffect,
+  formatCategory,
   localDateString,
   monthStartString,
   shiftMonth,
@@ -28,6 +30,23 @@ import { supabase } from "../../utils/supabase";
 const PRIMARY = "#00D09E";
 const INSIGHT_ACCENTS = ["#00A884", "#2775E8", "#F5A524"];
 const INSIGHT_BACKGROUNDS = ["#E8FFF5", "#EAF3FF", "#FFF5E2"];
+
+type LatestActivity = {
+  id: string;
+  merchant_name: string | null;
+  amount: number;
+  occurred_on: string;
+  category: string;
+  transaction_type: "expense" | "income" | "refund";
+  source: "manual" | "receipt";
+};
+
+function displayActivityDate(value: string): string {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!parts) return value;
+  const date = new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])));
+  return date.toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
 
 function getSmartStatus(totalExpense: number, monthlyBudget: number) {
   if (!monthlyBudget || monthlyBudget <= 0) {
@@ -105,7 +124,7 @@ export default function HomeScreen() {
   const [chartLoading, setChartLoading] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
   const chartRequestRef = useRef(0);
-  const [lastReceipt, setLastReceipt] = useState<any | null>(null);
+  const [latestActivity, setLatestActivity] = useState<LatestActivity | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const status = getSmartStatus(totalExpense, monthlyBudget);
   const [aiInsights, setAiInsights] = useState<string[] | null>(null);
@@ -301,25 +320,18 @@ export default function HomeScreen() {
     const { data: lastRows, error: lastError } = await supabase
       .from("transactions")
       .select(
-        "id, merchant_name, amount, occurred_on, category, created_at, receipt_id",
+        "id, merchant_name, amount, occurred_on, category, transaction_type, source",
       )
       .eq("user_id", user.id)
       .eq("status", "posted")
-      .not("receipt_id", "is", null)
       .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
       .limit(1);
 
     if (lastError) {
-      console.log("Home: last receipt error", lastError);
-    } else if (lastRows && lastRows.length > 0) {
-      const latest = lastRows[0];
-      setLastReceipt({
-        ...latest,
-        total_amount: latest.amount,
-        receipt_date: latest.occurred_on,
-      });
+      console.log("Home: latest activity error", lastError);
     } else {
-      setLastReceipt(null);
+      setLatestActivity((lastRows?.[0] as LatestActivity | undefined) ?? null);
     }
 
     await analysisPromise;
@@ -537,35 +549,79 @@ export default function HomeScreen() {
             )}
           </View>
 
-          {lastReceipt && (
-            <View style={styles.lastReceiptCard}>
-              <Text style={styles.lastReceiptTitle}>Last Receipt</Text>
+          {latestActivity && (
+            <TouchableOpacity
+              style={styles.latestActivityCard}
+              onPress={() => router.push({
+                pathname: "/transaction/[id]",
+                params: { id: latestActivity.id },
+              })}
+              accessibilityRole="button"
+              accessibilityLabel={`View latest ${latestActivity.source === "receipt" ? "scanned receipt" : "manual entry"}`}
+              activeOpacity={0.85}
+            >
+              <View style={styles.latestActivityHeader}>
+                <View style={styles.latestActivityHeaderIcon}>
+                  <IconSymbol
+                    name={latestActivity.source === "receipt" ? "doc.text" : "pencil"}
+                    size={21}
+                    color="#007D65"
+                  />
+                </View>
+                <View style={styles.latestActivityHeaderText}>
+                  <Text style={styles.latestActivityHeading}>Latest activity</Text>
+                  <Text style={styles.latestActivitySubheading}>Your most recently added entry</Text>
+                </View>
+                <IconSymbol name="chevron.right" size={20} color="#52736D" />
+              </View>
 
-              <Text style={styles.lastReceiptLabel}>Merchant</Text>
-              <Text style={styles.lastReceiptValue}>
-                {lastReceipt.merchant_name || "Unknown"}
-              </Text>
+              <View style={styles.latestActivityMain}>
+                <View style={styles.latestActivityMerchantBlock}>
+                  <Text style={styles.latestActivityEyebrow}>
+                    {latestActivity.transaction_type === "income" ? "FROM" : "AT"}
+                  </Text>
+                  <Text style={styles.latestActivityMerchant} numberOfLines={2}>
+                    {latestActivity.merchant_name?.trim() ||
+                      (latestActivity.transaction_type === "income" ? "Income" :
+                        latestActivity.transaction_type === "refund" ? "Refund" : "Unnamed merchant")}
+                  </Text>
+                </View>
+                <View style={styles.latestActivityAmountBlock}>
+                  <Text style={styles.latestActivityEyebrow}>
+                    {latestActivity.transaction_type === "income" ? "INCOME" :
+                      latestActivity.transaction_type === "refund" ? "REFUND" : "SPENT"}
+                  </Text>
+                  <Text selectable numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.latestActivityAmount}>
+                    {latestActivity.transaction_type === "expense" ? "−" : "+"}RM{Number(latestActivity.amount).toFixed(2)}
+                  </Text>
+                </View>
+              </View>
 
-              <Text style={styles.lastReceiptLabel}>Date</Text>
-              <Text style={styles.lastReceiptValue}>
-                {lastReceipt.receipt_date || "—"}
-              </Text>
-
-              <Text style={styles.lastReceiptLabel}>Total Amount</Text>
-              <Text style={styles.lastReceiptValue}>
-                RM {Number(lastReceipt.total_amount || 0).toFixed(2)}
-              </Text>
-
-              <Text style={styles.lastReceiptLabel}>Category</Text>
-              <Text style={styles.lastReceiptValue}>
-                {lastReceipt.category
-                  ? lastReceipt.category
-                      .replace(/_/g, " ")
-                      .toLowerCase()
-                      .replace(/\b\w/g, (c: string) => c.toUpperCase())
-                  : "Not categorized"}
-              </Text>
-            </View>
+              <View style={styles.latestActivityDetails}>
+                <View style={styles.latestActivityDetail}>
+                  <IconSymbol
+                    name={latestActivity.source === "receipt" ? "doc.text" : "pencil"}
+                    size={16}
+                    color="#007D65"
+                  />
+                  <Text style={styles.latestActivityDetailText}>
+                    {latestActivity.source === "receipt" ? "Scanned receipt" : "Manual entry"}
+                  </Text>
+                </View>
+                <View style={styles.latestActivityDetail}>
+                  <IconSymbol name="calendar" size={16} color="#007D65" />
+                  <Text style={styles.latestActivityDetailText}>
+                    {displayActivityDate(latestActivity.occurred_on)}
+                  </Text>
+                </View>
+                <View style={styles.latestActivityDetail}>
+                  <IconSymbol name="tag" size={16} color="#007D65" />
+                  <Text style={styles.latestActivityDetailText} numberOfLines={1}>
+                    {formatCategory(latestActivity.category)}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
           )}
         </ScrollView>
       </View>
@@ -812,27 +868,90 @@ const styles = StyleSheet.create({
     color: "#3B4B4B",
     marginTop: 2,
   },
-  lastReceiptCard: {
+  latestActivityCard: {
     marginTop: 10,
     marginBottom: 16,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: "#F4FBF7",
+    padding: 18,
+    borderRadius: 22,
+    backgroundColor: "#F2FFF9",
+    borderWidth: 1,
+    borderColor: "#BFEEDA",
   },
-  lastReceiptTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+  latestActivityHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  latestActivityHeaderIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#CFF7E6",
+  },
+  latestActivityHeaderText: { flex: 1 },
+  latestActivityHeading: {
+    fontSize: 19,
+    fontWeight: "800",
     color: "#093030",
-    marginBottom: 8,
   },
-  lastReceiptLabel: {
-    fontSize: 11,
-    color: "#4A5B5B",
-    marginTop: 4,
-  },
-  lastReceiptValue: {
+  latestActivitySubheading: {
     fontSize: 12,
+    color: "#55736C",
+    marginTop: 2,
+  },
+  latestActivityMain: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingVertical: 18,
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#D7EFE4",
+  },
+  latestActivityMerchantBlock: { flex: 1 },
+  latestActivityAmountBlock: { alignItems: "flex-end", maxWidth: "55%" },
+  latestActivityEyebrow: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    color: "#598076",
+    marginBottom: 5,
+  },
+  latestActivityMerchant: {
+    fontSize: 17,
+    fontWeight: "800",
     color: "#093030",
-    fontWeight: "600",
+  },
+  latestActivityAmount: {
+    fontSize: 21,
+    fontWeight: "800",
+    color: "#008B6C",
+    fontVariant: ["tabular-nums"],
+  },
+  latestActivityDetails: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 16,
+  },
+  latestActivityDetail: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    maxWidth: "100%",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: "#DEF7EB",
+  },
+  latestActivityDetailText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#135547",
+    flexShrink: 1,
   },
 });
