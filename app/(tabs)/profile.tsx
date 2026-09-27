@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
     top: 80,
     paddingTop: 40,
     paddingHorizontal: 24,
-    paddingBottom: 24,
+    paddingBottom: 124,
   },
   avatarWrapper: {
     position: "absolute",

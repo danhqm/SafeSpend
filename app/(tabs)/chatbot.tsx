@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginTop: 12,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   inputContainerKeyboard: {
     paddingBottom: 8,

@@ -527,7 +527,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 36,
     borderTopRightRadius: 36,
   },
-  content: { padding: 22, paddingTop: 28, paddingBottom: 48 },
+  content: { padding: 22, paddingTop: 28, paddingBottom: 124 },
   actionRow: { flexDirection: "row", gap: 10 },
   primaryAction: {
     flex: 1,

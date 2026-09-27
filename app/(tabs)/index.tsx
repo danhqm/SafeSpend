@@ -632,7 +632,7 @@ export default function HomeScreen() {
       <View style={styles.bottomSheet}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 65 }}
+          contentContainerStyle={{ paddingBottom: 125 }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
