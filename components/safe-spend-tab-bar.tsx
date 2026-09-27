@@ -119,6 +119,9 @@ function TabItem({
 
 export function SafeSpendTabBar({ state, descriptors, navigation, insets }: TabBarProps) {
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const safeAreaColor = state.routes[state.index]?.name === "edufinance"
+    ? "#F4F8F6"
+    : "#FFFFFF";
 
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
@@ -134,50 +137,65 @@ export function SafeSpendTabBar({ state, descriptors, navigation, insets }: TabB
   if (keyboardVisible) return null;
 
   return (
-    <View
-      pointerEvents="box-none"
-      style={[styles.positioner, { bottom: Math.max(insets.bottom - 10, 10) }]}
-    >
-      <View style={styles.dock}>
-        {state.routes.map((route, index) => {
-          const focused = state.index === index;
-          const title = descriptors[route.key].options.title;
-          const label = typeof title === "string" ? title : route.name;
-          const isScan = route.name === "receiptscanner";
-          const icons = TAB_ICONS[route.name] ?? TAB_ICONS.index;
+    <>
+      <View
+        pointerEvents="none"
+        style={[styles.bottomSafeArea, {
+          height: Math.max(insets.bottom, 10),
+          backgroundColor: safeAreaColor,
+        }]}
+      />
+      <View
+        pointerEvents="box-none"
+        style={[styles.positioner, { bottom: Math.max(insets.bottom - 10, 10) }]}
+      >
+        <View style={styles.dock}>
+          {state.routes.map((route, index) => {
+            const focused = state.index === index;
+            const title = descriptors[route.key].options.title;
+            const label = typeof title === "string" ? title : route.name;
+            const isScan = route.name === "receiptscanner";
+            const icons = TAB_ICONS[route.name] ?? TAB_ICONS.index;
 
-          return (
-            <TabItem
-              key={route.key}
-              label={label}
-              icon={focused ? icons.active : icons.idle}
-              focused={focused}
-              isScan={isScan}
-              onPress={() => {
-                const event = navigation.emit({
-                  type: "tabPress",
-                  target: route.key,
-                  canPreventDefault: true,
-                });
-                if (!focused && !event.defaultPrevented) {
-                  if (process.env.EXPO_OS === "ios") {
-                    void Haptics.selectionAsync().catch(() => {});
+            return (
+              <TabItem
+                key={route.key}
+                label={label}
+                icon={focused ? icons.active : icons.idle}
+                focused={focused}
+                isScan={isScan}
+                onPress={() => {
+                  const event = navigation.emit({
+                    type: "tabPress",
+                    target: route.key,
+                    canPreventDefault: true,
+                  });
+                  if (!focused && !event.defaultPrevented) {
+                    if (process.env.EXPO_OS === "ios") {
+                      void Haptics.selectionAsync().catch(() => {});
+                    }
+                    navigation.navigate(route.name);
                   }
-                  navigation.navigate(route.name);
+                }}
+                onLongPress={() =>
+                  navigation.emit({ type: "tabLongPress", target: route.key })
                 }
-              }}
-              onLongPress={() =>
-                navigation.emit({ type: "tabLongPress", target: route.key })
-              }
-            />
-          );
-        })}
+              />
+            );
+          })}
+        </View>
       </View>
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  bottomSafeArea: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
   positioner: {
     position: "absolute",
     left: 14,
