@@ -3,7 +3,6 @@ import {
   isActionPayload,
   isLessonPayload,
   isQuizPayload,
-  localLearningDate,
   type LearningModule,
   type QuizResult,
 } from "@/types/learning";
@@ -134,18 +133,11 @@ export default function LearningPathDetailsScreen() {
         throw authError ?? new Error("Authentication required");
       }
 
-      const [progressResult, streakResult] = await Promise.all([
-        supabase.from("user_path_progress").upsert(
-          { user_id: userId, module_id: moduleId },
-          { onConflict: "user_id,module_id", ignoreDuplicates: true },
-        ),
-        supabase.from("user_streaks").upsert(
-          { user_id: userId, date: localLearningDate() },
-          { onConflict: "user_id,date", ignoreDuplicates: true },
-        ),
-      ]);
+      const progressResult = await supabase.from("user_path_progress").upsert(
+        { user_id: userId, module_id: moduleId },
+        { onConflict: "user_id,module_id", ignoreDuplicates: true },
+      );
       if (progressResult.error) throw progressResult.error;
-      if (streakResult.error) throw streakResult.error;
 
       setCompletedModuleIds((current) => new Set(current).add(moduleId));
       return true;

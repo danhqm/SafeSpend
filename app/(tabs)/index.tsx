@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import ConfettiCannon from "react-native-confetti-cannon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MonthlySpendingChart } from "../../components/monthly-spending-chart";
 import {
@@ -33,32 +32,6 @@ type WeeklyPoint = {
   total: number;
   categories: Record<string, number>;
 };
-
-function computeStreak(dates: string[]): number {
-  if (!dates.length) return 0;
-
-  const uniqueDates = Array.from(new Set(dates));
-  const sorted = uniqueDates
-    .map((d) => new Date(d + "T00:00:00"))
-    .sort((a, b) => b.getTime() - a.getTime());
-
-  let streak = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  for (let i = 0; i < sorted.length; i++) {
-    const d = sorted[i];
-    const diffDays = Math.round(
-      (today.getTime() - d.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    if (diffDays === streak) {
-      streak++;
-    } else if (diffDays > streak) {
-      break;
-    }
-  }
-  return streak;
-}
 
 function getDateNDaysAgo(n: number): string {
   const d = new Date();
@@ -147,16 +120,12 @@ export default function HomeScreen() {
   const [chartLoading, setChartLoading] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
   const chartRequestRef = useRef(0);
-  const [monthReceiptCount, setMonthReceiptCount] = useState<number>(0);
-  const [streakCount, setStreakCount] = useState<number>(0);
   const [insights, setInsights] = useState<string[]>([]);
   const [lastReceipt, setLastReceipt] = useState<any | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const status = getSmartStatus(totalExpense, monthlyBudget);
   const [aiInsights, setAiInsights] = useState<string[] | null>(null);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
-  const [showConfetti, setShowConfetti] = useState(false);
-  const prevStreakRef = useRef<number>(0);
   const monthlySpending = React.useMemo(
     () => summarizeMonthlySpending(chartSnapshot?.rows ?? [], profileMonthlyIncome),
     [chartSnapshot, profileMonthlyIncome],
@@ -165,27 +134,6 @@ export default function HomeScreen() {
   useEffect(() => {
     void setupSmartNotifications();
   }, []);
-
-  useEffect(() => {
-    const prev = prevStreakRef.current;
-    let hideTimer: ReturnType<typeof setTimeout> | undefined;
-    let showTimer: ReturnType<typeof setTimeout> | undefined;
-    if (streakCount > prev) {
-      const milestones = new Set([3, 7, 30]);
-      if (milestones.has(streakCount)) {
-        showTimer = setTimeout(() => {
-          setShowConfetti(true);
-          hideTimer = setTimeout(() => setShowConfetti(false), 2500);
-        }, 0);
-      }
-    }
-    prevStreakRef.current = streakCount;
-
-    return () => {
-      if (showTimer) clearTimeout(showTimer);
-      if (hideTimer) clearTimeout(hideTimer);
-    };
-  }, [streakCount]);
 
   const progressPercent =
     monthlyBudget > 0
@@ -332,7 +280,7 @@ export default function HomeScreen() {
 
     const { data: monthTransactions, error: monthError } = await supabase
       .from("transactions")
-      .select("amount, transaction_type, receipt_id")
+      .select("amount, transaction_type")
       .eq("user_id", user.id)
       .eq("status", "posted")
       .in("transaction_type", ["expense", "refund"])
@@ -347,9 +295,6 @@ export default function HomeScreen() {
       }, 0);
 
       setTotalExpense(Math.max(0, sum));
-      setMonthReceiptCount(
-        monthTransactions.filter((row: any) => Boolean(row.receipt_id)).length,
-      );
     }
 
     const { data: lastRows, error: lastError } = await supabase
@@ -485,18 +430,6 @@ export default function HomeScreen() {
     };
 
     await fetchAIInsights(payload);
-
-    const { data: streakRows, error: streakError } = await supabase
-      .from("user_streaks")
-      .select("date")
-      .eq("user_id", user.id);
-
-    if (streakError) {
-      console.log("Home: streak error", streakError);
-    } else if (streakRows) {
-      const dates = streakRows.map((r: any) => r.date as string);
-      setStreakCount(computeStreak(dates));
-    }
 
     const fourteenDaysAgoStr = getDateNDaysAgo(13);
 
@@ -829,48 +762,8 @@ export default function HomeScreen() {
               </Text>
             </View>
           )}
-
-          <View style={styles.streakRow}>
-            <View
-              style={[
-                styles.statCard,
-                streakCount >= 3 && styles.streakGlowCard,
-              ]}
-            >
-              <View style={[styles.statIcon, { backgroundColor: "#E0FFF4" }]}>
-                <Ionicons name="flame" size={18} color="#00D09E" />
-              </View>
-
-              <Text style={styles.statValue}>
-                {streakCount}
-                <Text style={styles.statUnit}>
-                  {" "}
-                  day{streakCount === 1 ? "" : "s"}
-                </Text>
-              </Text>
-
-              <Text style={styles.statLabel}>Daily Streak</Text>
-            </View>
-
-            <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: "#FFF4E0" }]}>
-                <Ionicons name="receipt-outline" size={18} color="#F59E0B" />
-              </View>
-
-              <Text style={styles.statValue}>{monthReceiptCount}</Text>
-              <Text style={styles.statLabel}>Receipts this month</Text>
-            </View>
-          </View>
         </ScrollView>
       </View>
-      {showConfetti && (
-        <ConfettiCannon
-          count={90}
-          origin={{ x: 180, y: 0 }}
-          fadeOut
-          fallSpeed={2500}
-        />
-      )}
     </SafeAreaView>
   );
 }
@@ -918,34 +811,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: 20,
     marginTop: 8,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 14,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  statIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 6,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#093030",
-  },
-  statUnit: {
-    fontSize: 13,
-    fontWeight: "600",
   },
   statBox: {
     flex: 1,
@@ -1070,22 +935,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 10,
   },
-  streakRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-    marginVertical: 16,
-  },
-  streakLabel: {
-    fontSize: 12,
-    color: "#4A5B5B",
-  },
-  streakValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#093030",
-  },
-
   badgeRow: {
     flexDirection: "row",
     marginTop: 14,
@@ -1136,14 +985,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#093030",
     fontWeight: "600",
-  },
-  streakGlowCard: {
-    borderWidth: 1.5,
-    borderColor: "#00D09E",
-    shadowColor: "#00D09E",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
   },
 });

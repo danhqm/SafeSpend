@@ -1,6 +1,5 @@
 import { WeeklyMoneyMissionCard } from "@/components/weekly-money-mission-card";
 import {
-  computeLearningStreak,
   getLocalMonday,
   localLearningDate,
   missionFromAssignment,
@@ -86,7 +85,6 @@ export default function EduFinanceScreen() {
   const [completedModuleIds, setCompletedModuleIds] = useState<Set<string>>(
     new Set(),
   );
-  const [streakCount, setStreakCount] = useState(0);
   const [weeklyMissions, setWeeklyMissions] = useState<WeeklyMoneyMission[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [showMissionHistory, setShowMissionHistory] = useState(false);
@@ -108,8 +106,6 @@ export default function EduFinanceScreen() {
         throw authError ?? new Error("Authentication required");
       }
 
-      const streakCutoff = new Date();
-      streakCutoff.setDate(streakCutoff.getDate() - 90);
       const currentWeekStart = localLearningDate(getLocalMonday(new Date()));
       setWeekStart(currentWeekStart);
 
@@ -121,7 +117,6 @@ export default function EduFinanceScreen() {
       const [
         pathResult,
         progressResult,
-        streakResult,
         goalResult,
         missionResult,
       ] =
@@ -138,12 +133,6 @@ export default function EduFinanceScreen() {
             .from("user_path_progress")
             .select("module_id")
             .eq("user_id", userId),
-          supabase
-            .from("user_streaks")
-            .select("date")
-            .eq("user_id", userId)
-            .gte("date", localLearningDate(streakCutoff))
-            .order("date", { ascending: false }),
           supabase
             .from("user_goals")
             .select(
@@ -164,7 +153,6 @@ export default function EduFinanceScreen() {
 
       if (pathResult.error) throw pathResult.error;
       if (progressResult.error) throw progressResult.error;
-      if (streakResult.error) throw streakResult.error;
       if (goalResult.error) throw goalResult.error;
       if (missionResult.error) throw missionResult.error;
 
@@ -178,9 +166,6 @@ export default function EduFinanceScreen() {
       setPaths(nextPaths);
       setCompletedModuleIds(
         new Set((progressResult.data || []).map((row) => row.module_id)),
-      );
-      setStreakCount(
-        computeLearningStreak((streakResult.data || []).map((row) => row.date)),
       );
       setWeeklyMissions(
         (missionResult.data || []) as unknown as WeeklyMoneyMission[],
@@ -390,12 +375,6 @@ export default function EduFinanceScreen() {
           <View>
             <Text style={styles.eyebrow}>SAFE SPEND</Text>
             <Text style={styles.screenTitle}>Money Skills</Text>
-          </View>
-          <View style={styles.streakPill}>
-            <Ionicons name="flame" size={17} color="#B75B0A" />
-            <Text selectable style={styles.streakText}>
-              {streakCount} day{streakCount === 1 ? "" : "s"}
-            </Text>
           </View>
         </View>
 
@@ -751,11 +730,9 @@ export default function EduFinanceScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F4F8F6" },
   content: { paddingHorizontal: 18, gap: 14 },
-  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  titleRow: { flexDirection: "row", alignItems: "center" },
   eyebrow: { color: "#4D6F68", fontSize: 10, fontWeight: "800", letterSpacing: 1.3 },
   screenTitle: { color: INK, fontSize: 27, fontWeight: "800" },
-  streakPill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 999, backgroundColor: "#FFF0D9" },
-  streakText: { color: "#7B470B", fontSize: 11, fontWeight: "800", fontVariant: ["tabular-nums"] },
   heroCard: { padding: 20, borderRadius: 22, backgroundColor: INK, borderCurve: "continuous" },
   heroEyebrow: { color: "#7AE2C6", fontSize: 10, fontWeight: "800", letterSpacing: 1.2 },
   heroTitle: { color: "#FFFFFF", fontSize: 21, lineHeight: 29, fontWeight: "800", paddingTop: 6 },

@@ -201,32 +201,6 @@ export function missionFromAssignment(
   return assignment.money_mission_templates;
 }
 
-function shiftDate(date: Date, days: number): Date {
-  const shifted = new Date(date);
-  shifted.setDate(shifted.getDate() + days);
-  return shifted;
-}
-
-export function computeLearningStreak(
-  dates: string[],
-  today = new Date(),
-): number {
-  const completedDates = new Set(dates);
-  let cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-  if (!completedDates.has(localLearningDate(cursor))) {
-    cursor = shiftDate(cursor, -1);
-    if (!completedDates.has(localLearningDate(cursor))) return 0;
-  }
-
-  let streak = 0;
-  while (completedDates.has(localLearningDate(cursor))) {
-    streak += 1;
-    cursor = shiftDate(cursor, -1);
-  }
-  return streak;
-}
-
 export function formatSourceType(source: LearningSource): string {
   if (source.source_type === "official") return "Official Malaysian source";
   if (source.source_type === "meta_analysis") return "Peer-reviewed meta-analysis";
