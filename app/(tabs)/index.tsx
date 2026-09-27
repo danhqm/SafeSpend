@@ -23,6 +23,17 @@ import {
   summarizeMonthlySpending,
   type MonthlySpendingRow,
 } from "../../types/finance";
+import {
+  isFinFresh,
+  isHomeFresh,
+  isMonthFresh,
+  type FinSummary,
+  type HomeSummary,
+  type LatestActivitySummary,
+  type MonthSummary,
+} from "../../utils/home-cache-core";
+import { homeCache } from "../../utils/home-cache";
+import { getSavedUserId } from "../../utils/offline-session";
 import { setupSmartNotifications } from "../../utils/notifications";
 import { authenticatedApiFetch } from "../../utils/api";
 import { supabase } from "../../utils/supabase";
@@ -31,21 +42,17 @@ const PRIMARY = "#00D09E";
 const INSIGHT_ACCENTS = ["#00A884", "#2775E8", "#F5A524"];
 const INSIGHT_BACKGROUNDS = ["#E8FFF5", "#EAF3FF", "#FFF5E2"];
 
-type LatestActivity = {
-  id: string;
-  merchant_name: string | null;
-  amount: number;
-  occurred_on: string;
-  category: string;
-  transaction_type: "expense" | "income" | "refund";
-  source: "manual" | "receipt";
-};
-
 function displayActivityDate(value: string): string {
   const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!parts) return value;
   const date = new Date(Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])));
   return date.toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+function displaySavedTime(timestamp: number) {
+  return new Date(timestamp).toLocaleString("en-MY", {
+    day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
+  });
 }
 
 function getSmartStatus(totalExpense: number, monthlyBudget: number) {
@@ -114,28 +121,49 @@ export default function HomeScreen() {
   const [totalExpense, setTotalExpense] = useState<number>(0);
   const [profileMonthlyIncome, setProfileMonthlyIncome] = useState(0);
   const [chartMonth, setChartMonth] = useState(monthStartString());
-  const [chartSnapshot, setChartSnapshot] = useState<{
-    month: string;
-    rows: MonthlySpendingRow[];
-    budget: number;
-    budgetUnavailable: boolean;
-  } | null>(null);
+  const [chartSnapshot, setChartSnapshot] = useState<MonthSummary | null>(null);
   const [chartDirection, setChartDirection] = useState<"previous" | "next">("next");
   const [chartLoading, setChartLoading] = useState(true);
   const [chartError, setChartError] = useState<string | null>(null);
   const chartRequestRef = useRef(0);
-  const [latestActivity, setLatestActivity] = useState<LatestActivity | null>(null);
+  const monthFetchesRef = useRef(new Map<string, Promise<MonthSummary>>());
+  const homeRequestRef = useRef(0);
+  const activeUserIdRef = useRef<string | null>(null);
+  const [latestActivity, setLatestActivity] = useState<LatestActivitySummary | null>(null);
+  const [homeSavedAt, setHomeSavedAt] = useState<number | null>(null);
+  const [homeMonth, setHomeMonth] = useState<string | null>(null);
+  const [homeCacheNotice, setHomeCacheNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const status = getSmartStatus(totalExpense, monthlyBudget);
+  const status = homeMonth && homeMonth !== monthStartString()
+    ? {
+      icon: "information-circle-outline" as const,
+      color: "#052224",
+      text: "Connect to update this month's spending status.",
+    }
+    : getSmartStatus(totalExpense, monthlyBudget);
   const [aiInsights, setAiInsights] = useState<string[] | null>(null);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
   const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
   const [analysisTransactionCount, setAnalysisTransactionCount] = useState<number | null>(null);
   const [analysisHistoryLimited, setAnalysisHistoryLimited] = useState(false);
+  const [analysisSavedAt, setAnalysisSavedAt] = useState<number | null>(null);
   const analysisRequestRef = useRef(0);
   const monthlySpending = React.useMemo(
-    () => summarizeMonthlySpending(chartSnapshot?.rows ?? [], profileMonthlyIncome),
-    [chartSnapshot, profileMonthlyIncome],
+    () => {
+      if (!chartSnapshot || chartSnapshot.month !== chartMonth) {
+        return { categories: [], total: 0, income: 0, incomeSource: "none" as const };
+      }
+      const income = chartSnapshot.recordedIncome > 0
+        ? chartSnapshot.recordedIncome : Math.max(0, profileMonthlyIncome);
+      return {
+        categories: chartSnapshot.categories,
+        total: chartSnapshot.total,
+        income,
+        incomeSource: chartSnapshot.recordedIncome > 0 ? "recorded" as const :
+          income > 0 ? "profile" as const : "none" as const,
+      };
+    },
+    [chartSnapshot, chartMonth, profileMonthlyIncome],
   );
 
   useEffect(() => {
@@ -147,12 +175,12 @@ export default function HomeScreen() {
       ? Math.min(100, Math.round((totalExpense / monthlyBudget) * 100))
       : 0;
 
-  const fetchAIInsights = React.useCallback(async () => {
+  const fetchAIInsights = React.useCallback(async (userId: string) => {
     const requestId = ++analysisRequestRef.current;
+    const cacheGeneration = homeCache.generation(userId);
     try {
       setAiInsightsLoading(true);
       setAiInsightsError(null);
-      setAiInsights(null);
 
       const resp = await authenticatedApiFetch("/api/fin-insights", {
         method: "POST",
@@ -167,56 +195,61 @@ export default function HomeScreen() {
         (value: unknown): value is string => typeof value === "string" && value.trim().length > 0,
       ).slice(0, 3);
       if (lines.length === 0) throw new Error("Fin returned no analysis");
-      if (requestId === analysisRequestRef.current) {
+      const summary: FinSummary = {
+        savedAt: Date.now(),
+        insights: lines,
+        recordedTransactions: Number.isInteger(json.recordedTransactions)
+          ? json.recordedTransactions : null,
+        historyLimited: Boolean(json.historyLimited),
+      };
+      if (requestId === analysisRequestRef.current &&
+        cacheGeneration === homeCache.generation(userId)) {
         setAiInsights(lines);
-        setAnalysisTransactionCount(
-          Number.isInteger(json.recordedTransactions) ? json.recordedTransactions : null,
-        );
-        setAnalysisHistoryLimited(Boolean(json.historyLimited));
+        setAnalysisTransactionCount(summary.recordedTransactions);
+        setAnalysisHistoryLimited(summary.historyLimited);
+        setAnalysisSavedAt(summary.savedAt);
+        void homeCache.putFin(userId, summary).catch((error) =>
+          console.log("Home: could not save Fin analysis offline", error));
       }
     } catch (err) {
       console.log("Fin analysis fetch error:", err);
       if (requestId === analysisRequestRef.current) {
-        setAiInsightsError("Fin's analysis is unavailable. Pull down to retry.");
+        setAiInsightsError("Fin could not refresh. Saved analysis remains available offline.");
       }
     } finally {
       if (requestId === analysisRequestRef.current) setAiInsightsLoading(false);
     }
   }, []);
 
-  const loadMonthlyChart = React.useCallback(async () => {
-    const requestId = ++chartRequestRef.current;
-    setChartLoading(true);
-    setChartError(null);
-
-    try {
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      const user = authData?.user;
-      if (authError || !user) throw authError ?? new Error("Please sign in again.");
-
+  const fetchMonthFromServer = React.useCallback((userId: string, month: string) => {
+    const fetchKey = `${userId}:${month}:${homeCache.generation(userId)}`;
+    const existing = monthFetchesRef.current.get(fetchKey);
+    if (existing) return existing;
+    const cacheGeneration = homeCache.generation(userId);
+    const promise = (async (): Promise<MonthSummary> => {
       const pageSize = 500;
       const rows: MonthlySpendingRow[] = [];
       const budgetResult = Promise.resolve(supabase
         .from("budgets")
         .select("amount")
-        .eq("user_id", user.id)
-        .eq("month_start", chartMonth)
+        .eq("user_id", userId)
+        .eq("month_start", month)
         .eq("category", "ALL")
         .maybeSingle());
-      const monthEnd = shiftMonth(chartMonth, 1);
+      const monthEnd = shiftMonth(month, 1);
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const endExclusive = chartMonth === monthStartString()
+      const endExclusive = month === monthStartString()
         ? localDateString(tomorrow)
         : monthEnd;
       for (let offset = 0; ; offset += pageSize) {
         const { data, error } = await supabase
           .from("transactions")
           .select("id, amount, category, transaction_type")
-          .eq("user_id", user.id)
+          .eq("user_id", userId)
           .eq("status", "posted")
           .in("transaction_type", ["expense", "refund", "income"])
-          .gte("occurred_on", chartMonth)
+          .gte("occurred_on", month)
           .lt("occurred_on", endExclusive)
           .order("id", { ascending: true })
           .range(offset, offset + pageSize - 1);
@@ -228,118 +261,208 @@ export default function HomeScreen() {
 
       const { data: budget, error: budgetError } = await budgetResult;
       if (budgetError) console.log("Home: chart budget error", budgetError);
+      const spending = summarizeMonthlySpending(rows, 0);
+      const summary: MonthSummary = {
+        savedAt: Date.now(),
+        month,
+        categories: spending.categories,
+        total: spending.total,
+        recordedIncome: spending.income,
+        budget: Math.max(0, Number(budget?.amount) || 0),
+        budgetUnavailable: Boolean(budgetError),
+      };
+      if (cacheGeneration !== homeCache.generation(userId)) {
+        throw new Error("Financial activity changed while loading this month");
+      }
+      void homeCache.putMonth(userId, summary).catch((error) =>
+        console.log("Home: could not save month offline", error));
+      return summary;
+    })();
+    monthFetchesRef.current.set(fetchKey, promise);
+    void promise.finally(() => monthFetchesRef.current.delete(fetchKey)).catch(() => {});
+    return promise;
+  }, []);
 
+  const prefetchNeighbours = React.useCallback((userId: string, month: string) => {
+    const neighbours = [shiftMonth(month, -1), shiftMonth(month, 1)]
+      .filter((candidate) => candidate <= monthStartString());
+    for (const candidate of neighbours) {
+      void homeCache.getMonth(userId, candidate).then((cached) => {
+        if (!cached) return fetchMonthFromServer(userId, candidate);
+      }).catch(() => {});
+    }
+  }, [fetchMonthFromServer]);
+
+  const loadMonthlyChart = React.useCallback(async (force = false) => {
+    const requestId = ++chartRequestRef.current;
+    setChartError(null);
+    const selectedMonth = chartMonth;
+    let cached: MonthSummary | null = null;
+    try {
+      const { userId, offline } = await getSavedUserId();
+      if (!userId) throw new Error("No saved session");
+      activeUserIdRef.current = userId;
+      cached = await homeCache.getMonth(userId, selectedMonth);
+      if (requestId !== chartRequestRef.current) return;
+      if (cached) {
+        setChartSnapshot(cached);
+        setChartLoading(force || !isMonthFresh(cached));
+      } else {
+        setChartSnapshot(null);
+        setChartLoading(true);
+      }
+      if (offline) {
+        if (!cached) throw new Error("This month was not saved before going offline");
+        setChartError("Showing saved month. Reconnect to refresh.");
+        return;
+      }
+      if (!force && cached && isMonthFresh(cached)) {
+        prefetchNeighbours(userId, selectedMonth);
+        return;
+      }
+      const summary = await fetchMonthFromServer(userId, selectedMonth);
       if (requestId === chartRequestRef.current) {
-        setChartSnapshot({
-          month: chartMonth,
-          rows,
-          budget: Math.max(0, Number(budget?.amount) || 0),
-          budgetUnavailable: Boolean(budgetError),
-        });
+        setChartSnapshot(summary);
+        prefetchNeighbours(userId, selectedMonth);
       }
     } catch (error) {
       console.log("Home: monthly spending error", error);
       if (requestId === chartRequestRef.current) {
-        setChartError("Could not load this month.");
+        setChartError(cached ? "Showing saved month. Tap to retry when online." : "Could not load this month.");
       }
     } finally {
       if (requestId === chartRequestRef.current) setChartLoading(false);
     }
-  }, [chartMonth]);
+  }, [chartMonth, fetchMonthFromServer, prefetchNeighbours]);
 
-  const loadData = React.useCallback(async () => {
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-    const user = authData?.user;
+  const loadData = React.useCallback(async (force = false) => {
+    const requestId = ++homeRequestRef.current;
+    let cachedHome: HomeSummary | null = null;
+    try {
+      const { userId, offline } = await getSavedUserId();
+      if (!userId) return;
+      activeUserIdRef.current = userId;
+      const [savedHome, cachedFin] = await Promise.all([
+        homeCache.getHome(userId), homeCache.getFin(userId),
+      ]);
+      cachedHome = savedHome;
+      if (requestId !== homeRequestRef.current) return;
+      if (cachedHome) {
+        setHomeSavedAt(cachedHome.savedAt);
+        setHomeMonth(cachedHome.month);
+        setUsername(cachedHome.username);
+        setAvatarUrl(cachedHome.avatarUrl);
+        setMonthlyBudget(cachedHome.month === monthStartString() ? cachedHome.monthlyBudget : 0);
+        setTotalExpense(cachedHome.month === monthStartString() ? cachedHome.totalExpense : 0);
+        setProfileMonthlyIncome(cachedHome.profileMonthlyIncome);
+        setLatestActivity(cachedHome.latestActivity);
+      } else {
+        setHomeSavedAt(null);
+        setHomeMonth(null);
+        setMonthlyBudget(0);
+        setTotalExpense(0);
+        setLatestActivity(null);
+      }
+      if (cachedFin) {
+        setAiInsights(cachedFin.insights);
+        setAnalysisTransactionCount(cachedFin.recordedTransactions);
+        setAnalysisHistoryLimited(cachedFin.historyLimited);
+        setAnalysisSavedAt(cachedFin.savedAt);
+      } else {
+        setAiInsights(null);
+        setAnalysisTransactionCount(null);
+        setAnalysisHistoryLimited(false);
+        setAnalysisSavedAt(null);
+      }
+      if (offline) {
+        setHomeCacheNotice(cachedHome?.month === monthStartString()
+          ? "Offline · showing your saved financial summary."
+          : "Offline · this month's Home totals are not saved yet. Earlier months remain in the chart.");
+        return;
+      }
+      if (!force && cachedHome && isHomeFresh(cachedHome) &&
+        cachedFin && isFinFresh(cachedFin)) return;
 
-    if (authError || !user) {
-      console.log("Home: no user", authError);
-      return;
+      const cacheGeneration = homeCache.generation(userId);
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || authData.user?.id !== userId) {
+        throw authError ?? new Error("Please sign in again.");
+      }
+      if (requestId !== homeRequestRef.current) return;
+      void homeCache.markOfflineUser(userId).catch((error) =>
+        console.log("Home: could not save offline account", error));
+      setHomeCacheNotice(null);
+
+      const analysisPromise = force || !cachedFin || !isFinFresh(cachedFin)
+        ? fetchAIInsights(userId) : Promise.resolve();
+      if (force || !cachedHome || !isHomeFresh(cachedHome)) {
+        const todayStr = localDateString();
+        const firstOfMonthStr = monthStartString();
+        const [profileResult, budgetResult, transactionResult, latestResult] = await Promise.all([
+          supabase.from("users").select("username, monthly_income, avatar_url")
+            .eq("user_id", userId).single(),
+          supabase.from("budgets").select("amount")
+            .eq("user_id", userId).eq("month_start", firstOfMonthStr)
+            .eq("category", "ALL").maybeSingle(),
+          supabase.from("transactions").select("amount, transaction_type")
+            .eq("user_id", userId).eq("status", "posted")
+            .in("transaction_type", ["expense", "refund"])
+            .gte("occurred_on", firstOfMonthStr).lte("occurred_on", todayStr),
+          supabase.from("transactions")
+            .select("id, merchant_name, amount, occurred_on, category, transaction_type, source")
+            .eq("user_id", userId).eq("status", "posted")
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false }).limit(1),
+        ]);
+        const error = profileResult.error || budgetResult.error ||
+          transactionResult.error || latestResult.error;
+        if (error) throw error;
+        const rawIncome = Number(profileResult.data?.monthly_income);
+        const summary: HomeSummary = {
+          savedAt: Date.now(),
+          month: firstOfMonthStr,
+          username: profileResult.data?.username || "User",
+          avatarUrl: profileResult.data?.avatar_url ?? null,
+          monthlyBudget: Number(budgetResult.data?.amount) || 0,
+          totalExpense: Math.max(0, (transactionResult.data ?? []).reduce(
+            (sum, row) => sum + expenseEffect(row.transaction_type, row.amount), 0,
+          )),
+          profileMonthlyIncome: Number.isFinite(rawIncome) ? rawIncome : 0,
+          latestActivity: (latestResult.data?.[0] as LatestActivitySummary | undefined) ?? null,
+        };
+        if (requestId === homeRequestRef.current &&
+          cacheGeneration === homeCache.generation(userId)) {
+          setUsername(summary.username);
+          setHomeSavedAt(summary.savedAt);
+          setHomeMonth(summary.month);
+          setAvatarUrl(summary.avatarUrl);
+          setMonthlyBudget(summary.monthlyBudget);
+          setTotalExpense(summary.totalExpense);
+          setProfileMonthlyIncome(summary.profileMonthlyIncome);
+          setLatestActivity(summary.latestActivity);
+          void homeCache.putHome(userId, summary).catch((error) =>
+            console.log("Home: could not save summary offline", error));
+        }
+      }
+      await analysisPromise;
+    } catch (error) {
+      console.log("Home: showing saved summary", error);
+      if (requestId === homeRequestRef.current) {
+        setHomeCacheNotice(cachedHome
+          ? "Showing saved data. Reconnect to refresh your summary."
+          : "Could not refresh Home. Pull down to retry when online.");
+      }
     }
-
-    const analysisPromise = fetchAIInsights();
-
-    let incomeNum = 0;
-
-    const { data: profile, error: profileError } = await supabase
-      .from("users")
-      .select("username, monthly_income, avatar_url")
-      .eq("user_id", user.id)
-      .single();
-
-    if (profileError) {
-      console.log("Home: profile error", profileError);
-    } else if (profile) {
-      setUsername(profile.username || "User");
-      if (profile.avatar_url) setAvatarUrl(profile.avatar_url);
-
-      const rawIncome = profile.monthly_income;
-      if (typeof rawIncome === "number") incomeNum = rawIncome;
-      else incomeNum = parseFloat(rawIncome ?? "0");
-    }
-    setProfileMonthlyIncome(Number.isFinite(incomeNum) ? incomeNum : 0);
-
-    const today = new Date();
-    const todayStr = localDateString(today);
-    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const firstOfMonthStr = localDateString(firstOfMonth);
-
-    const { data: overallBudget, error: budgetError } = await supabase
-      .from("budgets")
-      .select("amount")
-      .eq("user_id", user.id)
-      .eq("month_start", firstOfMonthStr)
-      .eq("category", "ALL")
-      .maybeSingle();
-
-    if (budgetError) {
-      console.log("Home: budget error", budgetError);
-      setMonthlyBudget(0);
-    } else {
-      setMonthlyBudget(Number(overallBudget?.amount) || 0);
-    }
-
-    const { data: monthTransactions, error: monthError } = await supabase
-      .from("transactions")
-      .select("amount, transaction_type")
-      .eq("user_id", user.id)
-      .eq("status", "posted")
-      .in("transaction_type", ["expense", "refund"])
-      .gte("occurred_on", firstOfMonthStr)
-      .lte("occurred_on", todayStr);
-
-    if (monthError) {
-      console.log("Home: month transactions error", monthError);
-    } else if (monthTransactions) {
-      const sum = monthTransactions.reduce((acc: number, row: any) => {
-        return acc + expenseEffect(row.transaction_type, row.amount);
-      }, 0);
-
-      setTotalExpense(Math.max(0, sum));
-    }
-
-    const { data: lastRows, error: lastError } = await supabase
-      .from("transactions")
-      .select(
-        "id, merchant_name, amount, occurred_on, category, transaction_type, source",
-      )
-      .eq("user_id", user.id)
-      .eq("status", "posted")
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(1);
-
-    if (lastError) {
-      console.log("Home: latest activity error", lastError);
-    } else {
-      setLatestActivity((lastRows?.[0] as LatestActivity | undefined) ?? null);
-    }
-
-    await analysisPromise;
   }, [fetchAIInsights]);
 
   useFocusEffect(
     React.useCallback(() => {
       void loadData();
+      return () => {
+        homeRequestRef.current += 1;
+        analysisRequestRef.current += 1;
+        setAiInsightsLoading(false);
+      };
     }, [loadData]),
   );
 
@@ -355,25 +478,28 @@ export default function HomeScreen() {
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([loadData(), loadMonthlyChart()]);
+      await Promise.all([loadData(true), loadMonthlyChart(true)]);
     } finally {
       setRefreshing(false);
     }
   }, [loadData, loadMonthlyChart]);
 
   const showPreviousMonth = React.useCallback(() => {
-    if (chartLoading) return;
+    const next = shiftMonth(chartMonth, -1);
     setChartDirection("previous");
-    setChartMonth(shiftMonth(chartSnapshot?.month ?? chartMonth, -1));
-  }, [chartLoading, chartMonth, chartSnapshot]);
+    setChartSnapshot(activeUserIdRef.current
+      ? homeCache.peekMonth(activeUserIdRef.current, next) : null);
+    setChartMonth(next);
+  }, [chartMonth]);
 
   const showNextMonth = React.useCallback(() => {
-    if (chartLoading) return;
-    const next = shiftMonth(chartSnapshot?.month ?? chartMonth, 1);
+    const next = shiftMonth(chartMonth, 1);
     if (next > monthStartString()) return;
     setChartDirection("next");
+    setChartSnapshot(activeUserIdRef.current
+      ? homeCache.peekMonth(activeUserIdRef.current, next) : null);
     setChartMonth(next);
-  }, [chartLoading, chartMonth, chartSnapshot]);
+  }, [chartMonth]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -441,6 +567,9 @@ export default function HomeScreen() {
           {status.text}
         </Text>
       </View>
+      {homeSavedAt !== null && (
+        <Text style={styles.homeSavedTime}>Home updated {displaySavedTime(homeSavedAt)}</Text>
+      )}
 
       <View style={styles.bottomSheet}>
         <ScrollView
@@ -450,6 +579,12 @@ export default function HomeScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
+          {homeCacheNotice && (
+            <View style={styles.cacheNotice}>
+              <Ionicons name="cloud-offline-outline" size={18} color="#007D65" />
+              <Text style={styles.cacheNoticeText}>{homeCacheNotice}</Text>
+            </View>
+          )}
           <View style={styles.ctaRow}>
             <TouchableOpacity
               style={styles.ctaButton}
@@ -479,7 +614,7 @@ export default function HomeScreen() {
           </View>
 
           <MonthlySpendingChart
-            month={chartSnapshot?.month ?? chartMonth}
+            month={chartMonth}
             pendingMonth={chartMonth}
             direction={chartDirection}
             categories={monthlySpending.categories}
@@ -488,14 +623,19 @@ export default function HomeScreen() {
             incomeSource={monthlySpending.incomeSource}
             budget={chartSnapshot?.budget ?? 0}
             budgetUnavailable={chartSnapshot?.budgetUnavailable ?? false}
-            hasData={chartSnapshot !== null}
+            hasData={chartSnapshot?.month === chartMonth}
             loading={chartLoading}
             error={chartError}
-            canGoNext={!chartLoading && (chartSnapshot?.month ?? chartMonth) < monthStartString()}
+            canGoNext={chartMonth < monthStartString()}
             onPrevious={showPreviousMonth}
             onNext={showNextMonth}
             onRetry={loadMonthlyChart}
           />
+          {chartSnapshot?.month === chartMonth && (
+            <Text style={styles.cacheTimestamp}>
+              Month saved {displaySavedTime(chartSnapshot.savedAt)} · available offline
+            </Text>
+          )}
 
           <View style={styles.insightsCard}>
             <View style={styles.insightsHeader}>
@@ -514,12 +654,17 @@ export default function HomeScreen() {
               </Text>
             )}
 
-            {!aiInsightsLoading && aiInsights && aiInsights.length > 0 && (
+            {aiInsights && aiInsights.length > 0 && (
               <View style={styles.insightsList}>
                 {analysisTransactionCount !== null && (
                   <Text style={styles.insightsCoverage}>
                     Based on {analysisHistoryLimited ? "the latest " : ""}
                     {analysisTransactionCount} confirmed transactions
+                  </Text>
+                )}
+                {analysisSavedAt !== null && (
+                  <Text style={styles.insightsCoverage}>
+                    Saved {displaySavedTime(analysisSavedAt)} · available offline
                   </Text>
                 )}
                 {aiInsights.map((line, index) => (
@@ -744,6 +889,12 @@ const styles = StyleSheet.create({
     color: "#052224",
     fontSize: 12,
   },
+  homeSavedTime: {
+    color: "#28665A",
+    fontSize: 11,
+    marginLeft: 20,
+    marginTop: 3,
+  },
   bottomSheet: {
     flex: 1,
     backgroundColor: "#ffffff",
@@ -839,6 +990,22 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: "#41635D",
     marginTop: 16,
+  },
+  cacheNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#E8FFF5",
+    marginBottom: 14,
+  },
+  cacheNoticeText: { flex: 1, fontSize: 12, color: "#135547", fontWeight: "600" },
+  cacheTimestamp: {
+    fontSize: 11,
+    color: "#59736D",
+    marginTop: 7,
+    marginLeft: 5,
   },
   badgeRow: {
     flexDirection: "row",

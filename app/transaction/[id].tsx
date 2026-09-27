@@ -9,6 +9,7 @@ import {
 } from "@/types/finance";
 import { AccountPicker } from "@/components/account-picker";
 import { authenticatedApiFetch } from "@/utils/api";
+import { homeCache, monthOfDate } from "@/utils/home-cache";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -169,6 +170,10 @@ export default function TransactionDetailScreen() {
         if (saveError) throw saveError;
       }
 
+      const changedMonths = [monthOfDate(transaction.occurred_on), monthOfDate(date)]
+        .filter((month): month is string => Boolean(month));
+      await homeCache.invalidateMonths(transaction.user_id, changedMonths)
+        .catch((cacheError) => console.warn("Could not clear saved Home summary", cacheError));
       await loadTransaction();
       Alert.alert("Transaction saved", "Your totals now use the updated details.");
     } catch (saveError) {
@@ -196,6 +201,9 @@ export default function TransactionDetailScreen() {
           .eq("id", transaction.id);
         if (deleteError) throw deleteError;
       }
+      const changedMonth = monthOfDate(transaction.occurred_on);
+      if (changedMonth) await homeCache.invalidateMonths(transaction.user_id, [changedMonth])
+        .catch((cacheError) => console.warn("Could not clear saved Home summary", cacheError));
       router.replace("/receiptscanner");
     } catch (deleteError) {
       console.error("Transaction deletion failed", deleteError);

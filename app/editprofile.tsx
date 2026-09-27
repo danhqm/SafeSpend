@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../utils/supabase"; // 🔁 adjust path if needed
+import { homeCache } from "../utils/home-cache";
 
 const PRIMARY = "#00D09E";
 
@@ -115,6 +116,8 @@ export default function EditProfileScreen() {
     await supabase.auth.updateUser({
       data: { username: username.trim() },
     });
+    await homeCache.invalidateHome(user.id)
+      .catch((cacheError) => console.warn("Could not clear saved Home summary", cacheError));
 
     setSaving(false);
     Alert.alert("Success", "Profile updated successfully", [

@@ -14,6 +14,7 @@ import {
 import { ActivityIndicator } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../../utils/supabase";
+import { homeCache } from "../../utils/home-cache";
 import {
   canUseFaceId,
   disableFaceId,
@@ -62,6 +63,9 @@ export default function ProfileScreen() {
 
     if (updateError) {
       console.log("Failed to save avatar url:", updateError);
+    } else {
+      await homeCache.invalidateHome(user.id)
+        .catch((cacheError) => console.warn("Could not clear saved Home summary", cacheError));
     }
   };
 
@@ -209,9 +213,13 @@ export default function ProfileScreen() {
                     router.push("/editprofile");
                   }
                   if (item.label === "Logout") {
+                    const cachedUserId = await homeCache.getOfflineUserId();
                     const { error } = await supabase.auth.signOut();
                     if (error) Alert.alert("Logout failed", error.message);
-                    else router.replace("/login");
+                    else {
+                      if (cachedUserId) await homeCache.clearUser(cachedUserId);
+                      router.replace("/login");
+                    }
                   }
                   if (item.label === "LHDN Tax Relief") {
                     router.push("/lhdn");

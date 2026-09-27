@@ -8,6 +8,7 @@ import {
 } from "@/types/finance";
 import { AccountPicker } from "@/components/account-picker";
 import { authenticatedApiFetch } from "@/utils/api";
+import { homeCache, monthOfDate } from "@/utils/home-cache";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -220,6 +221,16 @@ export default function ReceiptScanner() {
         },
       );
       if (rpcError) throw rpcError;
+
+      const changedMonth = monthOfDate(draft.receipt_date);
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session?.user.id && changedMonth) {
+          await homeCache.invalidateMonths(sessionData.session.user.id, [changedMonth]);
+        }
+      } catch (cacheError) {
+        console.warn("Could not clear saved Home summary", cacheError);
+      }
 
       setDraft(null);
       await loadTransactions();

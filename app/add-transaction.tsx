@@ -8,6 +8,7 @@ import {
 } from "@/types/finance";
 import { AccountPicker } from "@/components/account-picker";
 import { supabase } from "@/utils/supabase";
+import { homeCache, monthOfDate } from "@/utils/home-cache";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
@@ -111,6 +112,10 @@ export default function AddTransactionScreen() {
         status: "posted",
       });
       if (error) throw error;
+
+      const changedMonth = monthOfDate(date);
+      if (changedMonth) await homeCache.invalidateMonths(user.id, [changedMonth])
+        .catch((cacheError) => console.warn("Could not clear saved Home summary", cacheError));
 
       router.back();
     } catch (error) {

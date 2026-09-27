@@ -9,6 +9,7 @@ import {
   type WeeklyMoneyMission,
 } from "@/types/learning";
 import { supabase } from "@/utils/supabase";
+import { homeCache } from "@/utils/home-cache";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
@@ -234,6 +235,9 @@ export default function EduFinanceScreen() {
         .single();
       if (insertError) throw insertError;
 
+      await homeCache.invalidateFin(userId)
+        .catch((cacheError) => console.warn("Could not clear saved Fin analysis", cacheError));
+
       setGoals((current) => [data as Goal, ...current]);
       setNewGoalTitle("");
       setNewGoalNotes("");
@@ -266,6 +270,9 @@ export default function EduFinanceScreen() {
         ),
       );
       setError("Could not update that goal.");
+    } else {
+      await homeCache.invalidateFin(goal.user_id)
+        .catch((cacheError) => console.warn("Could not clear saved Fin analysis", cacheError));
     }
   }, []);
 

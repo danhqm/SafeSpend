@@ -94,7 +94,6 @@ export function MonthlySpendingChart({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gesture) =>
-          !loading &&
           Math.abs(gesture.dx) > 20 &&
           Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4,
         onPanResponderRelease: (_, gesture) => {
@@ -102,7 +101,7 @@ export function MonthlySpendingChart({
           if (gesture.dx < -60 && canGoNext) onNext();
         },
       }),
-    [canGoNext, loading, onNext, onPrevious],
+    [canGoNext, onNext, onPrevious],
   );
 
   const arcs = categories.map((item, index) => {
@@ -142,11 +141,10 @@ export function MonthlySpendingChart({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Previous month"
-            accessibilityState={{ disabled: loading }}
+            accessibilityState={{ disabled: false }}
             onPress={onPrevious}
-            disabled={loading}
             hitSlop={8}
-            style={[styles.arrow, loading && styles.disabledArrow]}
+            style={styles.arrow}
           >
             <Ionicons name="chevron-back" size={22} color={INK} />
           </Pressable>

@@ -11,6 +11,7 @@ import {
   type MonthlyBudget,
 } from "@/types/finance";
 import { supabase } from "@/utils/supabase";
+import { homeCache } from "@/utils/home-cache";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
@@ -127,6 +128,14 @@ export default function BudgetsScreen() {
         p_budgets: payload,
       });
       if (saveError) throw saveError;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session?.user.id) {
+          await homeCache.invalidateMonths(sessionData.session.user.id, [selectedMonth]);
+        }
+      } catch (cacheError) {
+        console.warn("Could not clear saved Home summary", cacheError);
+      }
       await loadMonth();
       Alert.alert("Budget saved", `Your plan for ${monthDisplayName(selectedMonth)} is ready.`);
     } catch (saveError) {

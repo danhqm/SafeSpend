@@ -10,6 +10,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { isFaceIdEnabledFor, unlockWithFaceId } from "../utils/biometrics";
+import { homeCache } from "../utils/home-cache";
+import { getSavedUserId } from "../utils/offline-session";
 import { supabase } from "../utils/supabase";
 import { BrandSplash } from "./brand-splash";
 
@@ -35,10 +37,9 @@ export function BiometricGate({ children }: { children: ReactNode }) {
     const checkLock = async () => {
       const id = ++checkId.current;
       try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        const enabled = data.session?.user
-          ? await isFaceIdEnabledFor(data.session.user.id)
+        const { userId } = await getSavedUserId();
+        const enabled = userId
+          ? await isFaceIdEnabledFor(userId)
           : false;
         if (!mounted || id !== checkId.current) return;
         setUnlockError("");
@@ -115,8 +116,10 @@ export function BiometricGate({ children }: { children: ReactNode }) {
 
   const handlePasswordFallback = async () => {
     try {
+      const cachedUserId = await homeCache.getOfflineUserId();
       const { error } = await supabase.auth.signOut({ scope: "local" });
       if (error) throw error;
+      if (cachedUserId) await homeCache.clearUser(cachedUserId);
       setStatus("open");
       router.replace("/login");
     } catch {

@@ -4,6 +4,7 @@ import {
   type AccountType,
 } from "@/types/finance";
 import { supabase } from "@/utils/supabase";
+import { homeCache } from "@/utils/home-cache";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
 import React, { useCallback, useState } from "react";
@@ -104,6 +105,8 @@ export default function AddAccountScreen() {
         });
         if (insertError) throw insertError;
       }
+      await homeCache.invalidateFin(userId)
+        .catch((cacheError) => console.warn("Could not clear saved Fin analysis", cacheError));
       router.back();
     } catch (saveError: any) {
       console.error("Account save failed", saveError);
