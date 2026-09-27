@@ -587,29 +587,32 @@ export default function HomeScreen() {
           )}
           <View style={styles.ctaRow}>
             <TouchableOpacity
-              style={styles.ctaButton}
+              style={[styles.ctaButton, styles.ctaFinButton]}
               onPress={() => router.push("/chatbot")}
+              activeOpacity={0.86}
+              accessibilityRole="button"
+              accessibilityLabel="Ask Fin"
             >
-              <Image
-                source={require("../../assets/images/Fin.png")}
-                style={{ width: 22, height: 22 }}
-                resizeMode="contain"
-              />
-              <Text style={styles.ctaText}>Ask Fin</Text>
+              <View style={[styles.ctaIconWrap, styles.ctaFinIconWrap]}>
+                <Image
+                  source={require("../../assets/images/Fin.png")}
+                  style={styles.ctaFinIcon}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={[styles.ctaText, styles.ctaFinText]}>Ask Fin</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.ctaButton}
+              style={[styles.ctaButton, styles.ctaScanButton]}
               onPress={() => router.push("/receiptscanner")}
+              activeOpacity={0.86}
+              accessibilityRole="button"
+              accessibilityLabel="Scan Receipt"
             >
-              <Ionicons name="receipt-outline" size={22} color="#093030" />
+              <View style={[styles.ctaIconWrap, styles.ctaScanIconWrap]}>
+                <Ionicons name="receipt-outline" size={24} color="#093030" />
+              </View>
               <Text style={styles.ctaText}>Scan Receipt</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.ctaButton}
-              onPress={() => router.push("/accounts")}
-            >
-              <Ionicons name="wallet-outline" size={22} color="#093030" />
-              <Text style={styles.ctaText}>Accounts</Text>
             </TouchableOpacity>
           </View>
 
@@ -906,24 +909,49 @@ const styles = StyleSheet.create({
   },
   ctaRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 18,
+    gap: 12,
+    marginBottom: 20,
   },
   ctaButton: {
     flex: 1,
-    flexDirection: "row",
+    minHeight: 104,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    boxShadow: "0 5px 14px rgba(2, 65, 54, 0.12)",
+  },
+  ctaFinButton: {
+    backgroundColor: "#0E3E3E",
+  },
+  ctaScanButton: {
     backgroundColor: PRIMARY,
-    paddingVertical: 12,
-    borderRadius: 20,
-    justifyContent: "center",
+  },
+  ctaIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: "center",
-    marginHorizontal: 4,
-    gap: 8,
+    justifyContent: "center",
+  },
+  ctaFinIconWrap: {
+    backgroundColor: "#D8F8EA",
+  },
+  ctaScanIconWrap: {
+    backgroundColor: "#A7F2DC",
+  },
+  ctaFinIcon: {
+    width: 25,
+    height: 25,
   },
   ctaText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
     color: "#093030",
+  },
+  ctaFinText: {
+    color: "#FFFFFF",
   },
 
   insightsCard: {

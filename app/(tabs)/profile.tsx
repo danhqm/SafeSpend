@@ -24,8 +24,9 @@ import {
 
 const MENU_ITEMS = [
   { label: "Edit Profile", icon: "person-outline" as const },
-  { label: "Logout", icon: "log-out-outline" as const },
+  { label: "Accounts", icon: "wallet-outline" as const },
   { label: "LHDN Tax Relief", icon: "document-text-outline" as const },
+  { label: "Logout", icon: "log-out-outline" as const },
 ];
 
 export default function ProfileScreen() {
@@ -211,6 +212,9 @@ export default function ProfileScreen() {
                 onPress={async () => {
                   if (item.label === "Edit Profile") {
                     router.push("/editprofile");
+                  }
+                  if (item.label === "Accounts") {
+                    router.push("/accounts");
                   }
                   if (item.label === "Logout") {
                     const cachedUserId = await homeCache.getOfflineUserId();
