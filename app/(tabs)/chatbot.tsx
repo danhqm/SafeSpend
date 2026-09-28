@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -23,6 +24,7 @@ export default function Chatbot() {
   const [loading, setLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     const showEvent =
@@ -43,7 +45,8 @@ export default function Chatbot() {
   }, []);
 
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (sendingRef.current || !input.trim()) return;
+    sendingRef.current = true;
 
     const message = input.trim();
     const userMessage: ChatMessage = { role: "user", text: message };
@@ -70,10 +73,11 @@ export default function Chatbot() {
     } catch {
       const errorMessage: ChatMessage = {
         role: "assistant",
-        text: "⚠️ Server not reachable.",
+        text: "Fin couldn't answer right now. Please try again.",
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
+      sendingRef.current = false;
       setLoading(false);
 
       setTimeout(
@@ -113,6 +117,7 @@ export default function Chatbot() {
             style={styles.chatContainer}
             contentContainerStyle={{ paddingBottom: 24 }}
             keyboardShouldPersistTaps="handled"
+            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
           >
             {messages.map((msg, i) => (
               <View
@@ -125,7 +130,17 @@ export default function Chatbot() {
                 <Text style={styles.messageText}>{msg.text}</Text>
               </View>
             ))}
-            {loading && <Text style={styles.loadingText}>🤖 Thinking...</Text>}
+            {loading && (
+              <View
+                style={styles.thinkingMessage}
+                accessibilityRole="progressbar"
+                accessibilityLabel="Fin is thinking"
+                accessibilityLiveRegion="polite"
+              >
+                <ActivityIndicator size="small" color="#007E69" />
+                <Text style={styles.thinkingText}>Fin is thinking...</Text>
+              </View>
+            )}
           </ScrollView>
 
           <View
@@ -143,7 +158,13 @@ export default function Chatbot() {
               onSubmitEditing={sendMessage}
               returnKeyType="send"
             />
-            <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
+            <TouchableOpacity
+              onPress={sendMessage}
+              style={[styles.sendButton, loading && styles.sendButtonDisabled]}
+              disabled={loading || !input.trim()}
+              accessibilityRole="button"
+              accessibilityLabel="Send message to Fin"
+            >
               <Ionicons name="send" size={22} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -235,10 +256,20 @@ const styles = StyleSheet.create({
     color: "#093030",
     fontSize: 14,
   },
-  loadingText: {
+  thinkingMessage: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "#DFF7E2",
+    borderRadius: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginVertical: 6,
+  },
+  thinkingText: {
     color: "#093030",
-    fontStyle: "italic",
-    marginTop: 4,
+    fontSize: 14,
   },
   inputContainer: {
     flexDirection: "row",
@@ -261,5 +292,8 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 25,
     marginLeft: 8,
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
   },
 });

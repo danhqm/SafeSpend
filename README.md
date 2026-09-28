@@ -54,6 +54,8 @@ Before applying future migrations:
 
 For a single-user installation, confirm the owner's Auth UUID and set the backend `OWNER_USER_ID`. For a shared installation, leave `OWNER_USER_ID` unset; public sign-ups can remain enabled and RLS keeps each user's data isolated.
 
+Fin chat answers personal-record questions through authenticated, user-scoped lookups. It can search saved receipts by scan date or purchase date, search confirmed transactions, and use a calculated financial overview for spending patterns. A saved but unconfirmed receipt is identified as such and is not counted as spending. Only selected financial records are sent to the configured OpenAI model for each question; Tax Relief claims, lessons, quizzes and mission progress are excluded (user-entered weekly financial goals are included in the overview). Search results are capped at 500 records per lookup and the overview at 5,000 transactions, so Fin must disclose when coverage is incomplete. It does not have a permanent conversational memory.
+
 ## Checks
 
 ```bash
