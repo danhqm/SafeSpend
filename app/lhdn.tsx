@@ -8,6 +8,7 @@ import { supabase } from "../utils/supabase";
 import { authenticatedApiFetch } from "../utils/api";
 import { addSignedReceiptImage } from "../utils/receipt-images";
 import { calculateClaims, money, parseAmount, TAX_RULES, TaxClaim, validDate } from "../types/tax";
+import { TaxFilingProfile, TaxHouseholdMember } from "../types/tax-filing";
 
 type Receipt = { id: string; merchant_name: string; total_amount: number; receipt_date: string; image_url: string | null; items: {name: string; price: number}[] | null };
 type Draft = TaxClaim & { amountText: string; eligibleText: string; dateText: string };
@@ -23,6 +24,8 @@ export default function LHDNClaimScreen() {
   const router = useRouter();
   const [year, setYear] = useState(2025);
   const [claims, setClaims] = useState<TaxClaim[]>([]);
+  const [filingProfiles, setFilingProfiles] = useState<TaxFilingProfile[]>([]);
+  const [householdMembers, setHouseholdMembers] = useState<TaxHouseholdMember[]>([]);
   const [userId, setUserId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,12 +52,22 @@ export default function LHDNClaimScreen() {
         if (!data || data.length < 500) break;
       }
       setClaims(all);
+      const [profilesResult, membersResult] = await Promise.all([
+        supabase.from("tax_filing_profiles").select("*").eq("user_id", auth.user.id),
+        supabase.from("tax_household_members").select("*").eq("user_id", auth.user.id),
+      ]);
+      if (profilesResult.error) throw profilesResult.error;
+      if (membersResult.error) throw membersResult.error;
+      setFilingProfiles((profilesResult.data || []) as TaxFilingProfile[]);
+      setHouseholdMembers((membersResult.data || []) as TaxHouseholdMember[]);
     } catch (e) { setError(errorMessage(e)); }
     finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   const visible = claims.filter(c=>c.tax_year === year);
   const calculation = calculateClaims(claims, year);
+  const filingProfile = filingProfiles.find(profile => profile.tax_year === year);
+  const isNonResident = filingProfile?.residency_status === "non_resident";
   const pending = visible.filter(c=>c.status !== "confirmed" && c.status !== "rejected").length;
   const rule = TAX_RULES.find(r=>r.id === draft?.rule_id);
   const years = [2025, 2026];
@@ -92,6 +105,9 @@ export default function LHDNClaimScreen() {
       Alert.alert("Check the date","Use a real date in the selected assessment year, in YYYY-MM-DD format."); return;
     }
     if(status==="confirmed") {
+      if (filingProfiles.find(profile => profile.tax_year === draft.tax_year)?.residency_status === "non_resident") {
+        Alert.alert("Review your filing status", "Your filing profile says non-resident. Personal relief estimates are paused for this year. Check HASiL guidance before confirming a claim."); return;
+      }
       if(!rule || draft.tax_year!==rule.year) { Alert.alert("Rules not reviewed","You can save this as a draft. Confirmed estimates are currently available for YA2025."); return; }
       if(!draft.eligibility_confirmed || !draft.beneficiary.trim()) { Alert.alert("Review eligibility","Check the eligibility statement and enter the beneficiary."); return; }
       if(rule.mode!=="fixed" && (!draft.dateText || eligible<=0 || (!draft.receipt_id && !draft.evidence_note.trim()))) {
@@ -165,12 +181,18 @@ export default function LHDNClaimScreen() {
     </View>
     <ScrollView style={s.page} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic">
       <View style={s.yearTabs}>{years.map(y=><Pressable key={y} onPress={()=>setYear(y)} style={[s.yearTab,y===year && s.yearTabActive]} accessibilityRole="button" accessibilityState={{selected:year===y}}><Text style={[s.yearText,y===year && s.yearTextActive]}>YA {y}</Text></Pressable>)}</View>
+      <Pressable accessibilityRole="button" onPress={()=>router.push({pathname:"/tax-filing",params:{year:String(year)}})} style={s.profileEntry}>
+        <View style={s.profileIcon}><Ionicons name="document-text-outline" size={24} color="#006B54" /></View>
+        <View style={s.actionText}><Text style={s.cardTitle}>Filing profile & family</Text>
+          <Text style={s.sub}>{filingProfile ? "Review form guide and family nicknames" : "Check your form and save family nicknames"}</Text></View>
+        <Ionicons name="chevron-forward" size={20} color="#006B54" />
+      </Pressable>
       {year!==2025 && <Text style={s.notice}>Draft tracking only. Limits for YA {year} have not been reviewed, so no eligible total is shown.</Text>}
       {error ? <View style={s.card}><Text style={s.notice}>Could not load tax claims: {error}</Text>{button("Retry",()=>void load())}</View> : loading ? <ActivityIndicator/> : <>
         <View style={s.hero}><View style={s.heroAccent}/><Text style={s.heroLabel}>Confirmed relief estimate · YA {year}</Text>
-          <Text style={s.total}>{calculation.available ? money(calculation.total) : "Awaiting reviewed rules"}</Text>
+          <Text style={s.total}>{isNonResident ? "Estimate paused" : calculation.available ? money(calculation.total) : "Awaiting reviewed rules"}</Text>
           <Text style={s.heroLabel}>{pending} claim{pending===1?"":"s"} to review</Text>
-          <Text style={s.heroLabel}>Based on your confirmations. This is a reduction in taxable income, not a refund or LHDN approval.</Text></View>
+          <Text style={s.heroLabel}>{isNonResident ? "Your filing profile says non-resident. Personal relief may not apply; check HASiL before claiming." : "Based on your confirmations. This is a reduction in taxable income, not a refund or LHDN approval."}</Text></View>
         <View style={s.actions}>
           <Pressable accessibilityRole="button" disabled={busy} onPress={()=>{setDraft(emptyClaim(year));setReceipt(null);setSelectedItems([]);setRulePicker(false);}} style={[s.addAction,busy&&s.disabled]}>
             <View style={s.actionIcon}><Ionicons name="add" size={24} color="#006B54"/></View>
@@ -191,7 +213,7 @@ export default function LHDNClaimScreen() {
         {busy && <ActivityIndicator accessibilityLabel="Processing receipt"/>}
         <Text style={s.sub}>Use Add claim for annual statements or personal reliefs. Keep the original supporting documents and record only qualifying items.</Text>
         <View style={s.tabBar}>{["Claims","Breakdown"].map(t=><Pressable key={t} style={[s.tab,tab===t&&s.tabActive]} onPress={()=>setTab(t)} accessibilityRole="button" accessibilityState={{selected:tab===t}}><Text style={[s.tabText,tab===t&&s.tabTextActive]}>{t}</Text></Pressable>)}</View>
-        {tab==="Claims" ? visible.length===0 ? <Text style={s.empty}>No claims for YA {year}. Add a claim or scan a receipt to get started.</Text> :
+        {tab==="Breakdown" && isNonResident ? <Text style={s.notice}>The personal-relief breakdown is paused because your filing profile says non-resident. Your claims are still saved.</Text> : tab==="Claims" ? visible.length===0 ? <Text style={s.empty}>No claims for YA {year}. Add a claim or scan a receipt to get started.</Text> :
           visible.map(c=><Pressable key={c.id} style={s.card} onPress={()=>void openClaim(c)} disabled={busy} accessibilityRole="button">
             <Text style={s.cardTitle}>{c.title}</Text><Text style={s.sub}>{TAX_RULES.find(r=>r.id===c.rule_id)?.title || "Choose a relief"}</Text>
             <Text style={s.status}>{c.status==="confirmed"?"Confirmed by you":c.status==="rejected"?"Excluded":"Needs review"} · {money(Number(c.eligible_amount))} requested</Text>
@@ -232,6 +254,13 @@ export default function LHDNClaimScreen() {
             {button("Read eligibility at HASiL",()=>void Linking.openURL(rule.source),true)}
             <Text style={s.sub}>Reviewed {rule.reviewed} · YA{rule.year}</Text></View>}
           {field("Claim title",draft.title,v=>patch({title:v}))}
+          {householdMembers.some(member=>member.tax_year===draft.tax_year) && <View style={s.field}>
+            <Text style={s.label}>Use a saved family nickname</Text>
+            <View style={s.row}>{householdMembers.filter(member=>member.tax_year===draft.tax_year).map(member=><Pressable
+              key={member.id} disabled={busy} accessibilityRole="button" onPress={()=>patch({beneficiary:member.display_name})}
+              style={s.chip}><Text style={s.chipText}>{member.display_name}</Text></Pressable>)}</View>
+            <Text style={s.sub}>Choosing a nickname only fills the beneficiary field. You still need to check eligibility.</Text>
+          </View>}
           {field("Beneficiary (for example Self or parent’s name)",draft.beneficiary,v=>patch({beneficiary:v}))}
           {rule?.mode!=="fixed" && field("Payment date (YYYY-MM-DD)",draft.dateText,v=>patch({dateText:v}))}
           {field(rule?.mode==="fixed"?"Personal relief amount":"Recorded amount (RM)",draft.amountText,v=>patch({amountText:v}),true)}
@@ -275,6 +304,8 @@ const s = StyleSheet.create({
   heroAccent:{position:"absolute",top:-76,right:-56,width:190,height:190,borderRadius:95,backgroundColor:"#087C67"},
   heroLabel:{color:"#DDFBF1",lineHeight:21},total:{fontSize:34,fontWeight:"700",color:"#fff",fontVariant:["tabular-nums"]},
   actions:{gap:12},addAction:{minHeight:74,paddingHorizontal:18,flexDirection:"row",alignItems:"center",gap:14,borderRadius:20,backgroundColor:"#00DAA4"},
+  profileEntry:{minHeight:72,paddingHorizontal:16,flexDirection:"row",alignItems:"center",gap:12,borderRadius:18,backgroundColor:"#fff",borderWidth:1,borderColor:"#D8EEE3"},
+  profileIcon:{width:42,height:42,alignItems:"center",justifyContent:"center",borderRadius:14,backgroundColor:"#E5F4ED"},
   actionGrid:{flexDirection:"row",gap:12},scanAction:{flex:1,minHeight:100,padding:16,justifyContent:"space-between",borderRadius:20,backgroundColor:"#1578D4"},
   photoAction:{flex:1,minHeight:100,padding:16,justifyContent:"space-between",borderRadius:20,backgroundColor:"#7250D6"},
   actionIcon:{width:42,height:42,alignItems:"center",justifyContent:"center",borderRadius:14,backgroundColor:"#E5FFF5"},
@@ -285,6 +316,7 @@ const s = StyleSheet.create({
   button:{backgroundColor:"#007F69",padding:14,borderRadius:12,alignItems:"center"},buttonText:{color:"#fff",fontWeight:"600"},
   secondary:{backgroundColor:"#e0eee8"},secondaryText:{color:"#093030"},disabled:{opacity:0.45},
   chip:{paddingHorizontal:18,paddingVertical:12,borderRadius:22,backgroundColor:"#e3eae7"},chipActive:{backgroundColor:"#8ce3c2"},
+  chipText:{color:"#073F38",fontWeight:"600"},
   notice:{color:"#83520a",lineHeight:21},empty:{paddingVertical:30,color:"#526b64",lineHeight:24},
   status:{color:"#00765b",fontWeight:"600"},field:{gap:7},label:{fontSize:14,fontWeight:"500",color:"#093030"},
   input:{backgroundColor:"#fff",borderWidth:1,borderColor:"#bdcfc7",padding:14,borderRadius:10,color:"#093030",fontSize:16},

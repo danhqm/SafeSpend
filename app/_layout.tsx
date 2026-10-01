@@ -85,6 +85,7 @@ export default function RootLayout() {
             headerBackTitle: "Learn",
           }}
         />
+        <Stack.Screen name="tax-filing" />
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />
