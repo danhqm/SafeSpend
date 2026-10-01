@@ -1,6 +1,6 @@
-# Tax tracker milestones 1–2
+# Tax tracker milestones 1–3
 
-The tracker records user-confirmed YA2025 personal relief claims. It does not calculate tax payable or file returns.
+The tracker records user-confirmed YA2025 personal relief claims and offers a narrowly scoped, indicative YA2025 employment tax estimate. It does not file returns.
 
 ## Rules and review
 
@@ -8,7 +8,7 @@ The tracker records user-confirmed YA2025 personal relief claims. It does not ca
 - YA2026 and other years are draft-only. Never copy YA2025 caps into another year's calculations.
 - Each change to a published ruleset needs a new version, official-source review, migration and calculation tests. Old-version claims must be reviewed again.
 - Current support covers 28 rules, including personal relief, spouse/alimony, medical sub-limits, lifestyle, education, savings and first-home interest.
-- Per-child relief calculations, deductions, rebates, PCB reconciliation and filing exports remain later milestones. Existing receipts for unsupported categories remain unconfirmed.
+- Per-child relief calculations and filing exports remain later milestones. Existing receipts for unsupported categories remain unconfirmed.
 - Eligibility is a user declaration backed by official guidance. OCR provides evidence, not approval.
 
 ## Claims and evidence
@@ -33,13 +33,25 @@ If a filing profile explicitly says non-resident, the Tax Relief screen pauses t
 
 `tax_filing_profiles` and `tax_household_members` have separate RLS policies for each operation and restrict records to the signed-in user. Ownership and assessment year are immutable after insert. No existing claims, receipts, or transactions are migrated or deleted by milestone 2.
 
+## Annual tax estimate
+
+For YA2025 only, a resident who declares no business income can manually record statutory employment income, PCB actually paid, zakat/fitrah, and donations to approved section 44(6) institutions. Unknown figures remain blank; a true zero must be entered explicitly. No salary, tax paid, or donation amount is inferred from ordinary SafeSpend transactions. YA2026 figures can be saved but cannot produce a tax estimate until that year's rules are reviewed.
+
+The estimate requires a saved filing profile, a confirmed individual relief claim, complete annual figures, and the user's explicit declaration that this employment-only, separate-assessment calculation fits their situation. It applies the [YA2025 resident tax bands](https://www.hasil.gov.my/individu/kadar-cukai/), the [personal and zakat rebates](https://www.hasil.gov.my/individu/rebat/), and the [10% aggregate-income cap for approved-institution donations](https://www.hasil.gov.my/individu/derma-hadiah/). It subtracts confirmed reliefs before calculating tax, then rebates, then PCB. A negative difference is a possible overpayment, **not** an approved refund.
+
+Business, rental or foreign income, joint assessment, child relief, spouse rebate, other donation classes, other deductions and tax credits are outside this calculation. A user with any of these must leave the scope declaration unchecked. The result remains an estimate even when every field is complete; MyTax and HASiL are authoritative. [HASiL's Form BE downloads](https://www.hasil.gov.my/muat-turun-borang/muat-turun-borang-individu/) provide the filing instructions.
+
+`tax_annual_inputs` stores only these manually entered figures, with owner-scoped RLS, immutable owner/year, non-negative amounts, and a database check that forbids confirmation with missing figures. It does not change existing financial records or tax claims.
+
 ## Verification
 
 - `npm test`, `npm run typecheck`, `npm run lint`.
+- `tests/tax-estimate.test.ts` covers bracket boundaries, the donation cap, rebates, PCB and estimate gating.
 - `tests/tax-database.sql` runs receipt/claim integration and two-account isolation checks in a transaction and rolls it back. It requires two existing accounts and an administrative SQL connection.
 - `tests/tax-filing-database.sql` checks filing-profile and household RLS plus immutable assessment year, also rolling back.
+- `tests/tax-estimate-database.sql` checks annual-input RLS, immutable year and incomplete-confirmation rejection, also rolling back.
 - Mobile camera, image viewer and keyboard behaviour still require a physical-device check.
 
 ## Deployment
 
-Apply the checked-in migrations before using the app screens. Both tax migrations were applied to the connected SafeSpend Supabase project during implementation. The existing OCR API supports this workflow; no backend deployment is required for this milestone.
+Apply the checked-in migrations before using the app screens. All three tax migrations were applied to the connected SafeSpend Supabase project during implementation. The existing OCR API supports this workflow; no backend deployment is required for this milestone.

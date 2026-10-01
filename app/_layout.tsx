@@ -86,6 +86,7 @@ export default function RootLayout() {
           }}
         />
         <Stack.Screen name="tax-filing" />
+        <Stack.Screen name="tax-estimate" />
         <Stack.Screen name="(tabs)" />
       </Stack>
       <StatusBar style="light" />

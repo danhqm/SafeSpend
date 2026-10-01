@@ -193,6 +193,12 @@ export default function LHDNClaimScreen() {
           <Text style={s.total}>{isNonResident ? "Estimate paused" : calculation.available ? money(calculation.total) : "Awaiting reviewed rules"}</Text>
           <Text style={s.heroLabel}>{pending} claim{pending===1?"":"s"} to review</Text>
           <Text style={s.heroLabel}>{isNonResident ? "Your filing profile says non-resident. Personal relief may not apply; check HASiL before claiming." : "Based on your confirmations. This is a reduction in taxable income, not a refund or LHDN approval."}</Text></View>
+        <Pressable accessibilityRole="button" onPress={()=>router.push({pathname:"/tax-estimate",params:{year:String(year)}})} style={s.profileEntry}>
+          <View style={s.profileIcon}><Ionicons name="calculator-outline" size={24} color="#006B54" /></View>
+          <View style={s.actionText}><Text style={s.cardTitle}>Annual tax estimate</Text>
+            <Text style={s.sub}>{year===2025 ? "Compare tax with PCB, zakat and donations" : "Save annual figures as drafts"}</Text></View>
+          <Ionicons name="chevron-forward" size={20} color="#006B54" />
+        </Pressable>
         <View style={s.actions}>
           <Pressable accessibilityRole="button" disabled={busy} onPress={()=>{setDraft(emptyClaim(year));setReceipt(null);setSelectedItems([]);setRulePicker(false);}} style={[s.addAction,busy&&s.disabled]}>
             <View style={s.actionIcon}><Ionicons name="add" size={24} color="#006B54"/></View>

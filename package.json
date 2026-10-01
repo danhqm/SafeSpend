@@ -12,7 +12,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --experimental-strip-types --test tests/auth-storage.test.ts tests/finance.test.ts tests/home-cache.test.ts tests/learning.test.ts tests/tax.test.ts tests/tax-filing.test.ts",
+    "test": "node --experimental-strip-types --test tests/auth-storage.test.ts tests/finance.test.ts tests/home-cache.test.ts tests/learning.test.ts tests/tax.test.ts tests/tax-filing.test.ts tests/tax-estimate.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
