@@ -72,10 +72,11 @@ export function estimateResidentEmploymentTax(
   profile: TaxFilingProfile | null,
   confirmedReliefs: number,
   hasIndividualRelief: boolean,
+  hasBusinessRecords: boolean,
 ): ResidentTaxEstimate | null {
   if (inputs.tax_year !== 2025 || profile?.tax_year !== 2025 ||
     profile.residency_status !== 'resident' || profile.business_income_status !== 'no' ||
-    !inputs.scope_confirmed || !hasIndividualRelief || !validMoney(confirmedReliefs) ||
+    hasBusinessRecords || !inputs.scope_confirmed || !hasIndividualRelief || !validMoney(confirmedReliefs) ||
     !validMoney(inputs.employment_income) || !validMoney(inputs.pcb_paid) ||
     !validMoney(inputs.zakat_paid) || !validMoney(inputs.approved_donations)) return null;
 

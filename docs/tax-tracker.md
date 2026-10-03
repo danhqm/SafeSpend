@@ -1,6 +1,6 @@
-# Tax tracker milestones 1–3
+# Tax tracker milestones 1–4
 
-The tracker records user-confirmed YA2025 personal relief claims and offers a narrowly scoped, indicative YA2025 employment tax estimate. It does not file returns.
+The tracker records user-confirmed YA2025 personal relief claims, offers a narrowly scoped employment tax estimate, and keeps manual business-entry notes for Form B preparation. It does not file returns.
 
 ## Rules and review
 
@@ -39,9 +39,17 @@ For YA2025 only, a resident who declares no business income can manually record 
 
 The estimate requires a saved filing profile, a confirmed individual relief claim, complete annual figures, and the user's explicit declaration that this employment-only, separate-assessment calculation fits their situation. It applies the [YA2025 resident tax bands](https://www.hasil.gov.my/individu/kadar-cukai/), the [personal and zakat rebates](https://www.hasil.gov.my/individu/rebat/), and the [10% aggregate-income cap for approved-institution donations](https://www.hasil.gov.my/individu/derma-hadiah/). It subtracts confirmed reliefs before calculating tax, then rebates, then PCB. A negative difference is a possible overpayment, **not** an approved refund.
 
-Business, rental or foreign income, joint assessment, child relief, spouse rebate, other donation classes, other deductions and tax credits are outside this calculation. A user with any of these must leave the scope declaration unchecked. The result remains an estimate even when every field is complete; MyTax and HASiL are authoritative. [HASiL's Form BE downloads](https://www.hasil.gov.my/muat-turun-borang/muat-turun-borang-individu/) provide the filing instructions.
+Business, rental or foreign income, joint assessment, child relief, spouse rebate, other donation classes, other deductions and tax credits are outside this calculation. A user with any of these must leave the scope declaration unchecked. Any saved business entry for the year also pauses the Form BE estimate until the entries are reviewed; the business entries are **never** folded into the employment-only calculation. The result remains an estimate even when every field is complete; MyTax and HASiL are authoritative. [HASiL's Form BE downloads](https://www.hasil.gov.my/muat-turun-borang/muat-turun-borang-individu/) provide the filing instructions.
 
 `tax_annual_inputs` stores only these manually entered figures, with owner-scoped RLS, immutable owner/year, non-negative amounts, and a database check that forbids confirmation with missing figures. It does not change existing financial records or tax claims.
+
+## Freelancer and side-hustle records
+
+Users can manually add, edit and remove dated business income and expense entries for YA2025 or YA2026. Each entry has a title, actual amount and optional invoice/receipt reference and notes. The screen shows recorded money in, money out and their **unadjusted** difference. It does not calculate statutory business income, decide expense deductibility, apply stock/capital/private-use adjustments, or produce a Form B tax estimate. Users must retain source documents separately. No ordinary SafeSpend transaction or receipt is imported automatically, preventing an unreviewed personal transaction from being treated as a business deduction.
+
+The filing-profile guide continues to suggest Form B only for a self-declared resident with business income. Saving a business entry never silently changes those answers; instead the screen prompts review if the profile does not match. HASiL describes [Form B as covering resident individuals with business income](https://www.hasil.gov.my/individu/pengenalan-cukai-pendapatan-individu/) and says [business records and supporting documents must be retained](https://www.hasil.gov.my/individu/soalan-lazim-individu/). Its [business profit-and-loss template](https://www.hasil.gov.my/eduzone/kira-dan-kalkulator-cukai/) is linked for users preparing their actual accounts.
+
+`tax_business_entries` has owner-scoped RLS, immutable identity/owner/year, a matching entry date and year, positive amounts, text limits, and an owner/year/date index. It is a working record, not an audit-grade document vault or a filed return. The physical documents and any statutory retention obligation remain the user's responsibility.
 
 ## Verification
 
@@ -50,8 +58,9 @@ Business, rental or foreign income, joint assessment, child relief, spouse rebat
 - `tests/tax-database.sql` runs receipt/claim integration and two-account isolation checks in a transaction and rolls it back. It requires two existing accounts and an administrative SQL connection.
 - `tests/tax-filing-database.sql` checks filing-profile and household RLS plus immutable assessment year, also rolling back.
 - `tests/tax-estimate-database.sql` checks annual-input RLS, immutable year and incomplete-confirmation rejection, also rolling back.
+- `tests/tax-business.test.ts` checks cent-safe record summaries and year separation; `tests/tax-business-database.sql` checks business-entry RLS and constraints in a rolled-back two-account test.
 - Mobile camera, image viewer and keyboard behaviour still require a physical-device check.
 
 ## Deployment
 
-Apply the checked-in migrations before using the app screens. All three tax migrations were applied to the connected SafeSpend Supabase project during implementation. The existing OCR API supports this workflow; no backend deployment is required for this milestone.
+Apply the checked-in migrations before using the app screens. All four tax migrations were applied to the connected SafeSpend Supabase project during implementation. The existing OCR API supports this workflow; no backend deployment is required for this milestone.

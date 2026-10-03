@@ -196,7 +196,13 @@ export default function LHDNClaimScreen() {
         <Pressable accessibilityRole="button" onPress={()=>router.push({pathname:"/tax-estimate",params:{year:String(year)}})} style={s.profileEntry}>
           <View style={s.profileIcon}><Ionicons name="calculator-outline" size={24} color="#006B54" /></View>
           <View style={s.actionText}><Text style={s.cardTitle}>Annual tax estimate</Text>
-            <Text style={s.sub}>{year===2025 ? "Compare tax with PCB, zakat and donations" : "Save annual figures as drafts"}</Text></View>
+            <Text style={s.sub}>{year===2025 ? filingProfile?.business_income_status === "yes" ? "Employment-only estimate paused for business income" : "Compare tax with PCB, zakat and donations" : "Save annual figures as drafts"}</Text></View>
+          <Ionicons name="chevron-forward" size={20} color="#006B54" />
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={()=>router.push({pathname:"/tax-business",params:{year:String(year)}})} style={s.profileEntry}>
+          <View style={s.profileIcon}><Ionicons name="briefcase-outline" size={24} color="#006B54" /></View>
+          <View style={s.actionText}><Text style={s.cardTitle}>Business records</Text>
+            <Text style={s.sub}>Track freelance or side-hustle money for Form B review</Text></View>
           <Ionicons name="chevron-forward" size={20} color="#006B54" />
         </Pressable>
         <View style={s.actions}>
@@ -231,7 +237,7 @@ export default function LHDNClaimScreen() {
             {r.excluded>0 && <Text style={s.notice}>{money(r.excluded)} excluded by individual or shared limit.</Text>}
             {r.rule.group && <Text style={s.sub}>Shared cap: {money(r.rule.groupCap!)}. Allocation follows the order shown.</Text>}
           </View>)}
-        <Text style={s.sub}>YA2025 sources reviewed 25 September 2026. Child/dependent calculations, rebates and a full tax-payable estimate will be added in later milestones.</Text>
+        <Text style={s.sub}>YA2025 relief sources reviewed 25 September 2026. Child/dependent calculations and filing exports are not yet supported.</Text>
         {button("Official HASiL relief guidance",()=>void Linking.openURL("https://www.hasil.gov.my/individu/pelepasan-cukai/"),true)}
       </>}
     </ScrollView>

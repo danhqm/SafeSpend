@@ -190,6 +190,13 @@ export default function TaxFilingScreen() {
               <Text style={styles.linkText}>Check official HASiL form guidance</Text><Ionicons name="open-outline" size={18} color="#C8FFE7" />
             </Pressable>
           </View>
+          {form === 'B' && savedProfile && !profileDirty && <Pressable accessibilityRole="button"
+            onPress={() => router.push({ pathname: '/tax-business', params: { year: String(year) } })} style={styles.businessLink}>
+            <Ionicons name="briefcase-outline" size={23} color="#006B54" />
+            <View style={styles.flex}><Text style={styles.businessTitle}>Business records</Text>
+              <Text style={styles.helper}>Keep freelance income and expense notes for review.</Text></View>
+            <Ionicons name="chevron-forward" size={20} color="#006B54" />
+          </Pressable>}
           <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(HASIL_RESIDENCY)} style={styles.inlineLink}>
             <Text style={styles.inlineLinkText}>Read HASiL residency rules</Text><Ionicons name="open-outline" size={17} color="#007F69" />
           </Pressable>
@@ -256,6 +263,8 @@ const styles = StyleSheet.create({
   resultCaveat: { color: '#D2F4E7', fontSize: 13, lineHeight: 20 },
   linkRow: { marginTop: 6, minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8 }, linkText: { color: '#C8FFE7', fontWeight: '700' },
   inlineLink: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 }, inlineLinkText: { color: '#006B54', fontWeight: '700' },
+  businessLink: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, padding: 15, borderRadius: 16, borderWidth: 1, borderColor: '#D8EEE3', backgroundColor: '#fff' },
+  businessTitle: { color: '#073F38', fontWeight: '700', fontSize: 16 },
   memberRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E0EEE8' },
   memberName: { fontSize: 15, color: '#073F38', fontWeight: '700' }, memberType: { color: '#4A665C', fontSize: 13 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },

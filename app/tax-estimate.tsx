@@ -28,6 +28,7 @@ export default function TaxEstimateScreen() {
   const [fields, setFields] = useState<AmountFields>(emptyFields);
   const [scopeConfirmed, setScopeConfirmed] = useState(false);
   const [claims, setClaims] = useState<TaxClaim[]>([]);
+  const [hasBusinessRecords, setHasBusinessRecords] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -38,12 +39,14 @@ export default function TaxEstimateScreen() {
     try {
       const { data: auth, error: authError } = await supabase.auth.getUser();
       if (authError || !auth.user) throw new Error('Please sign in again.');
-      const [profileResult, inputsResult] = await Promise.all([
+      const [profileResult, inputsResult, businessResult] = await Promise.all([
         supabase.from('tax_filing_profiles').select('*').eq('user_id', auth.user.id).eq('tax_year', year).maybeSingle(),
         supabase.from('tax_annual_inputs').select('*').eq('user_id', auth.user.id).eq('tax_year', year).maybeSingle(),
+        supabase.from('tax_business_entries').select('id').eq('user_id', auth.user.id).eq('tax_year', year).limit(1),
       ]);
       if (profileResult.error) throw profileResult.error;
       if (inputsResult.error) throw inputsResult.error;
+      if (businessResult.error) throw businessResult.error;
       const allClaims: TaxClaim[] = [];
       for (let offset = 0; ; offset += 500) {
         const { data, error: claimsError } = await supabase.from('tax_claims').select('*')
@@ -64,6 +67,7 @@ export default function TaxEstimateScreen() {
       } : emptyFields);
       setScopeConfirmed(inputs?.scope_confirmed ?? false);
       setClaims(allClaims);
+      setHasBusinessRecords((businessResult.data?.length ?? 0) > 0);
       setDirty(false);
     } catch (e) { if (active()) setError(errorMessage(e)); }
     finally { if (active()) setLoading(false); }
@@ -124,7 +128,7 @@ export default function TaxEstimateScreen() {
     claim.rule_id === 'individual' && claim.rule_version === RULE_VERSION &&
     claim.status === 'confirmed' && claim.eligibility_confirmed);
   const estimate = dirty || !savedInputs ? null :
-    estimateResidentEmploymentTax(savedInputs, profile, confirmedReliefs.total, hasIndividualRelief);
+    estimateResidentEmploymentTax(savedInputs, profile, confirmedReliefs.total, hasIndividualRelief, hasBusinessRecords);
   const readyFor2025 = year === 2025 && profile?.residency_status === 'resident' && profile.business_income_status === 'no';
 
   const field = (key: AmountKey, label: string, help: string) => <View style={styles.field} key={key}>
@@ -170,15 +174,19 @@ export default function TaxEstimateScreen() {
               <Text style={styles.summaryStatus}>{estimate.balance < 0 ? 'Possible overpayment' : estimate.balance > 0 ? 'Possible amount remaining' : 'Estimated tax covered by PCB'}</Text>
               <Text style={styles.summaryHelp}>Check every figure in MyTax. A refund or amount payable is decided by HASiL, not SafeSpend.</Text>
             </> : <>
-              <Text style={styles.summaryPending}>{year === 2026 ? 'Draft figures only' : dirty ? 'Save to refresh' : 'Not ready yet'}</Text>
-              <Text style={styles.summaryHelp}>{year === 2026 ? 'YA 2026 rates and relief rules are not reviewed here.' : dirty ? 'Your changes are not in the saved estimate.' : 'Complete the steps below before an amount is shown.'}</Text>
+              <Text style={styles.summaryPending}>{year === 2026 ? 'Draft figures only' : hasBusinessRecords ? 'Form BE estimate paused' : dirty ? 'Save to refresh' : 'Not ready yet'}</Text>
+              <Text style={styles.summaryHelp}>{year === 2026 ? 'YA 2026 rates and relief rules are not reviewed here.' : hasBusinessRecords ? 'Business records exist for this year. This employment-only calculation must not include them.' : dirty ? 'Your changes are not in the saved estimate.' : 'Complete the steps below before an amount is shown.'}</Text>
             </>}
           </View>
 
           {year === 2025 && !estimate && <View style={styles.section}>
             <Text style={styles.sectionTitle}>What is needed</Text>
+            {hasBusinessRecords && <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/tax-business', params: { year: '2025' } })} style={styles.inlineAction}>
+              <Text style={styles.inlineActionText}>Review business records</Text><Ionicons name="arrow-forward" size={17} color="#006B54" /></Pressable>}
             <View style={styles.readinessRow}><Ionicons name={readyFor2025 ? 'checkmark-circle' : 'ellipse-outline'} size={19} color="#007F69" />
               <Text style={styles.help}>Filing profile says resident, with no business income.</Text></View>
+            <View style={styles.readinessRow}><Ionicons name={hasBusinessRecords ? 'alert-circle-outline' : 'checkmark-circle'} size={19} color="#007F69" />
+              <Text style={styles.help}>{hasBusinessRecords ? 'Business activity is recorded for this year; an employment-only estimate would be incomplete.' : 'No business activity is recorded in SafeSpend for this year.'}</Text></View>
             {!readyFor2025 && <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/tax-filing', params: { year: '2025' } })} style={styles.inlineAction}>
               <Text style={styles.inlineActionText}>Review filing profile</Text><Ionicons name="arrow-forward" size={17} color="#006B54" /></Pressable>}
             <View style={styles.readinessRow}><Ionicons name={hasIndividualRelief ? 'checkmark-circle' : 'ellipse-outline'} size={19} color="#007F69" />

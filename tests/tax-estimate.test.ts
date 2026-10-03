@@ -23,7 +23,7 @@ test('YA2025 progressive bands match HASiL boundary totals', () => {
 });
 
 test('approved donations are capped before reliefs, zakat offsets tax, PCB determines balance', () => {
-  assert.deepEqual(estimateResidentEmploymentTax(inputs, profile, 9_000, true), {
+  assert.deepEqual(estimateResidentEmploymentTax(inputs, profile, 9_000, true, false), {
     employmentIncome: 100_000, donationRequested: 20_000, donationAllowed: 10_000,
     donationOverLimit: 10_000, reliefs: 9_000, chargeableIncome: 81_000,
     taxBeforeRebates: 5_790, personalRebate: 0, zakatApplied: 1_000,
@@ -33,28 +33,29 @@ test('approved donations are capped before reliefs, zakat offsets tax, PCB deter
 
 test('RM400 rebate applies at RM35,000 but not above it', () => {
   const atLimit = estimateResidentEmploymentTax({ ...inputs, employment_income: 44_000,
-    approved_donations: 0, zakat_paid: 0, pcb_paid: 0 }, profile, 9_000, true);
+    approved_donations: 0, zakat_paid: 0, pcb_paid: 0 }, profile, 9_000, true, false);
   assert.equal(atLimit?.chargeableIncome, 35_000);
   assert.equal(atLimit?.personalRebate, 400);
   assert.equal(atLimit?.taxAfterRebates, 200);
   const aboveLimit = estimateResidentEmploymentTax({ ...inputs, employment_income: 44_000.01,
-    approved_donations: 0, zakat_paid: 0, pcb_paid: 0 }, profile, 9_000, true);
+    approved_donations: 0, zakat_paid: 0, pcb_paid: 0 }, profile, 9_000, true, false);
   assert.equal(aboveLimit?.personalRebate, 0);
 });
 
 test('rebates never create a negative tax and reliefs cannot push income below zero', () => {
   const estimate = estimateResidentEmploymentTax({ ...inputs, employment_income: 9_000,
-    approved_donations: 0, zakat_paid: 10_000, pcb_paid: 100 }, profile, 9_000, true);
+    approved_donations: 0, zakat_paid: 10_000, pcb_paid: 100 }, profile, 9_000, true, false);
   assert.equal(estimate?.chargeableIncome, 0);
   assert.equal(estimate?.taxAfterRebates, 0);
   assert.equal(estimate?.balance, -100);
 });
 
 test('no estimate for missing scope, incomplete figures, business, non-resident or YA2026', () => {
-  assert.equal(estimateResidentEmploymentTax(inputs, profile, 9_000, false), null);
-  assert.equal(estimateResidentEmploymentTax({ ...inputs, scope_confirmed: false }, profile, 9_000, true), null);
-  assert.equal(estimateResidentEmploymentTax({ ...inputs, pcb_paid: null }, profile, 9_000, true), null);
-  assert.equal(estimateResidentEmploymentTax(inputs, { ...profile, business_income_status: 'yes' }, 9_000, true), null);
-  assert.equal(estimateResidentEmploymentTax(inputs, { ...profile, residency_status: 'non_resident' }, 9_000, true), null);
-  assert.equal(estimateResidentEmploymentTax({ ...inputs, tax_year: 2026 }, profile, 9_000, true), null);
+  assert.equal(estimateResidentEmploymentTax(inputs, profile, 9_000, false, false), null);
+  assert.equal(estimateResidentEmploymentTax(inputs, profile, 9_000, true, true), null);
+  assert.equal(estimateResidentEmploymentTax({ ...inputs, scope_confirmed: false }, profile, 9_000, true, false), null);
+  assert.equal(estimateResidentEmploymentTax({ ...inputs, pcb_paid: null }, profile, 9_000, true, false), null);
+  assert.equal(estimateResidentEmploymentTax(inputs, { ...profile, business_income_status: 'yes' }, 9_000, true, false), null);
+  assert.equal(estimateResidentEmploymentTax(inputs, { ...profile, residency_status: 'non_resident' }, 9_000, true, false), null);
+  assert.equal(estimateResidentEmploymentTax({ ...inputs, tax_year: 2026 }, profile, 9_000, true, false), null);
 });
