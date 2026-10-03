@@ -44,7 +44,11 @@ export async function setupSmartNotifications() {
     });
   }
 
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  // Leave user-chosen tax check-ins and any other app reminders intact.
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(scheduled.filter(item => item.content.data?.kind === "safespend.smart" ||
+    (item.content.title === "SafeSpend" && SMART_MESSAGES.includes(item.content.body ?? "")))
+    .map(item => Notifications.cancelScheduledNotificationAsync(item.identifier)));
 
   for (let i = 1; i <= 7; i++) {
     const randomMsg =
@@ -59,6 +63,7 @@ export async function setupSmartNotifications() {
         title: "SafeSpend",
         body: randomMsg,
         sound: true,
+        data: { kind: "safespend.smart" },
       },
       trigger: {
         type: Notifications.SchedulableTriggerInputTypes.DATE,

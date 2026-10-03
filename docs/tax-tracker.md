@@ -1,4 +1,4 @@
-# Tax tracker milestones 1–4
+# Tax tracker milestones 1–5
 
 The tracker records user-confirmed YA2025 personal relief claims, offers a narrowly scoped employment tax estimate, and keeps manual business-entry notes for Form B preparation. It does not file returns.
 
@@ -8,7 +8,7 @@ The tracker records user-confirmed YA2025 personal relief claims, offers a narro
 - YA2026 and other years are draft-only. Never copy YA2025 caps into another year's calculations.
 - Each change to a published ruleset needs a new version, official-source review, migration and calculation tests. Old-version claims must be reviewed again.
 - Current support covers 28 rules, including personal relief, spouse/alimony, medical sub-limits, lifestyle, education, savings and first-home interest.
-- Per-child relief calculations and filing exports remain later milestones. Existing receipts for unsupported categories remain unconfirmed.
+- Per-child relief calculations remain outside this tracker. Existing receipts for unsupported categories remain unconfirmed.
 - Eligibility is a user declaration backed by official guidance. OCR provides evidence, not approval.
 
 ## Claims and evidence
@@ -51,6 +51,16 @@ The filing-profile guide continues to suggest Form B only for a self-declared re
 
 `tax_business_entries` has owner-scoped RLS, immutable identity/owner/year, a matching entry date and year, positive amounts, text limits, and an owner/year/date index. It is a working record, not an audit-grade document vault or a filed return. The physical documents and any statutory retention obligation remain the user's responsibility.
 
+## Filing preparation, dates and export
+
+The Filing preparation screen reads the signed-in user's existing filing profile, annual figures, claims and business entries for one assessment year. It shows the suggested form, claims still needing review, confirmed cap-adjusted reliefs where supported, and a business-record count. It warns if Form BE is suggested while business entries exist. It never submits to MyTax.
+
+YA2025 Form BE and B statutory dates and e-Filing grace dates come from [HASiL's 2026 filing programme](https://www.hasil.gov.my/wp-content/uploads/program-memfail-bn-bagi-tahun-2026.pdf). The user must check the current programme before filing. Form M has case-specific considerations and no date is asserted here. YA2026 filing dates are not copied from YA2025; the app shows them as pending an official programme update. If HASiL changes the programme, update `types/tax-handoff.ts` and the tests, then release an app update.
+
+Users can choose a **personal** preparation check-in date. This is a local notification on the current device, labelled by the suggested form; it is not presented as an official deadline. It is opt-in and can be removed. The existing daily notification setup now only replaces its own notifications, not tax check-ins. No tax figure is put in the notification body. Check-ins are not synced between devices and may not fire if device notifications are disabled.
+
+On iOS and Android, the user can explicitly export a UTF-8 plain-text filing note through the native share sheet. It includes manually entered annual figures, business record references, confirmed cap-adjusted reliefs only with a saved resident YA2025 profile, and pending claim titles. It does **not** include receipt images, infer ordinary transactions as tax figures, calculate statutory business profit, certify eligibility or map to exact MyTax boxes. Deletion of the temporary app-cache file is attempted after sharing and again on the next visit if interrupted; a copy saved by the user or receiving app is outside SafeSpend's control. Treat the export as sensitive financial data. Keep original supporting documents separately; [HASiL's record guidance](https://www.hasil.gov.my/individu/soalan-lazim-individu/) explains the seven-year retention duty. There is no automatic deletion or legal retention determination in the app.
+
 ## Verification
 
 - `npm test`, `npm run typecheck`, `npm run lint`.
@@ -59,8 +69,9 @@ The filing-profile guide continues to suggest Form B only for a self-declared re
 - `tests/tax-filing-database.sql` checks filing-profile and household RLS plus immutable assessment year, also rolling back.
 - `tests/tax-estimate-database.sql` checks annual-input RLS, immutable year and incomplete-confirmation rejection, also rolling back.
 - `tests/tax-business.test.ts` checks cent-safe record summaries and year separation; `tests/tax-business-database.sql` checks business-entry RLS and constraints in a rolled-back two-account test.
+- `tests/tax-handoff.test.ts` checks verified deadline scope, year/form gating and the exported notes' caveats.
 - Mobile camera, image viewer and keyboard behaviour still require a physical-device check.
 
 ## Deployment
 
-Apply the checked-in migrations before using the app screens. All four tax migrations were applied to the connected SafeSpend Supabase project during implementation. The existing OCR API supports this workflow; no backend deployment is required for this milestone.
+Apply the checked-in migrations before using the app screens. All four tax migrations were applied to the connected SafeSpend Supabase project during earlier milestones. Milestone 5 is client-only and adds no database objects or backend deployment.

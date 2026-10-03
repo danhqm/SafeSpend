@@ -48,6 +48,7 @@
         }
       ],
       "expo-status-bar",
+      "expo-sharing",
       "expo-web-browser",
       [
         "expo-local-authentication",
