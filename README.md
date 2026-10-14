@@ -77,3 +77,7 @@ npm test
 - Deploy the backend near the Supabase region where possible.
 - Review the per-user burst and daily quotas for `/api/chat`, `/api/ocr`, and `/api/fin-insights` before sharing any URL.
 - Verify login, receipt scan, signed-image viewing, deletion, insights, and logout end to end.
+
+## SafeSpend Launch Video
+
+https://github.com/user-attachments/assets/10ab0068-f0e1-4ee0-8354-e047f4ead23c
