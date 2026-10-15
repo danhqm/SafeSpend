@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-14T16:45:13Z",
+  "title": "Design System: SafeSpend",
+  "extensions": {
+    "colorMeta": {
+      "mint": {
+        "role": "primary",
+        "displayName": "Mint"
+      },
+      "deep-teal": {
+        "role": "primary",
+        "displayName": "Deep teal"
+      },
+      "offwhite": {
+        "role": "neutral",
+        "displayName": "Offwhite"
+      },
+      "field": {
+        "role": "neutral",
+        "displayName": "Field green"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted green-gray"
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border"
+      },
+      "pale-teal": {
+        "role": "neutral",
+        "displayName": "Pale teal"
+      },
+      "dark-mint": {
+        "role": "primary",
+        "displayName": "Dark mint"
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "White"
+      },
+      "danger": {
+        "role": "neutral",
+        "displayName": "Danger red"
+      }
+    },
+    "typographyMeta": {
+      "onboarding-headline": {
+        "displayName": "Onboarding headline",
+        "purpose": "Default Mint Welcome title; Receipt Focus and compact variants remain surface-specific."
+      },
+      "profile-title": {
+        "displayName": "Profile title",
+        "purpose": "Profile heading on deep teal."
+      },
+      "identity": {
+        "displayName": "Identity",
+        "purpose": "Signed-in user's name."
+      },
+      "section-title": {
+        "displayName": "Section title",
+        "purpose": "Money tools and conditional Device security."
+      },
+      "action-title": {
+        "displayName": "Action title",
+        "purpose": "Settings-row labels."
+      },
+      "onboarding-body": {
+        "displayName": "Onboarding body",
+        "purpose": "Default onboarding explanation."
+      },
+      "supporting": {
+        "displayName": "Supporting",
+        "purpose": "Profile action descriptions."
+      },
+      "identity-detail": {
+        "displayName": "Identity detail",
+        "purpose": "Email on deep teal."
+      },
+      "member-label": {
+        "displayName": "Member label",
+        "purpose": "Member ID on deep teal; value uses tabular numerals."
+      }
+    },
+    "shadows": [
+      {
+        "name": "receipt-paper",
+        "value": "0 8px 22px rgba(4, 42, 38, 0.14)",
+        "purpose": "Receipt Focus illustration only; not a Profile card treatment."
+      },
+      {
+        "name": "existing-dock",
+        "value": "0 8px 22px rgba(4, 42, 38, 0.26)",
+        "purpose": "Unchanged floating five-tab shell."
+      },
+      {
+        "name": "existing-scan-control",
+        "value": "0 4px 12px rgba(0, 208, 158, 0.35)",
+        "purpose": "Unchanged raised Scan control in the tab shell."
+      }
+    ],
+    "motion": [],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Onboarding primary",
+      "kind": "button",
+      "refersTo": "onboarding-primary",
+      "description": "Static browser translation of the native Next/Get started action; Poppins uses the host font if available.",
+      "html": "<button class=\"ds-primary\">Next <svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"M5 12h14m-6-6 6 6-6 6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>",
+      "css": ".ds-primary{width:100%;min-height:56px;padding:14px 20px;border:0;border-radius:28px;background:#00D09E;color:#0E3E3E;font-family:Poppins,sans-serif;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:13px}.ds-primary:active{opacity:.7}"
+    },
+    {
+      "name": "Profile Edit",
+      "kind": "button",
+      "refersTo": "profile-edit",
+      "description": "Mint text action on the profile hero; shown on its source background.",
+      "html": "<div class=\"ds-hero\"><button class=\"ds-edit\">Edit</button></div>",
+      "css": ".ds-hero{background:#0E3E3E;padding:18px 24px}.ds-edit{min-width:48px;min-height:48px;border:0;border-radius:12px;background:transparent;color:#00D09E;font-family:Poppins,sans-serif;font-size:14px;line-height:22px;font-weight:700}.ds-edit:active{opacity:.7}.ds-edit:focus-visible{outline:2px solid #00D09E;outline-offset:3px}.ds-edit:disabled{opacity:.55}"
+    },
+    {
+      "name": "Profile settings row",
+      "kind": "button",
+      "refersTo": "profile-action",
+      "description": "Flat action row with outline icon, description, navigation chevron and one-unit separator. SVG is a browser approximation of the native outline icon.",
+      "html": "<div class=\"ds-settings\"><button class=\"ds-row\"><span class=\"ds-icon\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"M3 6h17v14H3z M3 6V4h14v2 M16 11h5v5h-5z\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span><span class=\"ds-copy\"><span class=\"ds-title\">Accounts</span><span class=\"ds-desc\">Cash, bank, cards and e-wallets.</span></span><span class=\"ds-arrow\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"m9 6 6 6-6 6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span></button><div class=\"ds-rule\"></div></div>",
+      "css": ".ds-row{width:100%;min-height:76px;padding:14px 0;display:flex;align-items:center;gap:14px;border:0;border-radius:12px;background:transparent;text-align:left;color:#0E3E3E;font-family:Poppins,sans-serif}.ds-row:active{background:#DFF7E2}.ds-row:focus-visible{outline:2px solid #087D65;outline-offset:3px}.ds-row:disabled{opacity:.55}.ds-icon{width:44px;height:44px;flex-shrink:0;border-radius:12px;background:#DFF7E2;display:grid;place-items:center}.ds-copy{flex:1;min-width:0;display:grid;gap:3px}.ds-title{font-size:16px;line-height:24px;font-weight:700}.ds-desc{font-size:13px;line-height:21px;color:#617470}.ds-arrow{color:#617470}.ds-rule{height:1px;background:#C9DAD4}.ds-settings{background:#F1FFF3;padding:0 24px}"
+    },
+    {
+      "name": "Profile logout row",
+      "kind": "button",
+      "refersTo": "profile-action",
+      "description": "Separated danger action, with its local tile tint; no navigation chevron.",
+      "html": "<div class=\"ds-settings\"><button class=\"ds-row ds-danger\"><span class=\"ds-icon\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"M9 3H4v18h5 M9 12h12 M17 8l4 4-4 4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span><span class=\"ds-copy\"><span class=\"ds-title\">Log out</span></span></button></div>",
+      "css": ".ds-row{width:100%;min-height:76px;padding:14px 0;display:flex;align-items:center;gap:14px;border:0;border-radius:12px;background:transparent;text-align:left;color:#0E3E3E;font-family:Poppins,sans-serif}.ds-row:active{background:#DFF7E2}.ds-row:focus-visible{outline:2px solid #087D65;outline-offset:3px}.ds-row:disabled{opacity:.55}.ds-icon{width:44px;height:44px;flex-shrink:0;border-radius:12px;background:#DFF7E2;display:grid;place-items:center}.ds-copy{flex:1;min-width:0;display:grid;gap:3px}.ds-title{font-size:16px;line-height:24px;font-weight:700}.ds-desc{font-size:13px;line-height:21px;color:#617470}.ds-arrow{color:#617470}.ds-rule{height:1px;background:#C9DAD4}.ds-settings{background:#F1FFF3;padding:12px 24px 0}.ds-danger{color:#B42318}.ds-danger .ds-icon{background:#FCECE8}"
+    },
+    {
+      "name": "Profile sheet",
+      "kind": "card",
+      "refersTo": "profile-sheet",
+      "description": "Approved flat sheet with rounded top corners; the sample shows only the Money tools group. Native bottom safe-area and dock clearance are not simulated here.",
+      "html": "<div class=\"ds-sheet-surround\"><section class=\"ds-sheet\"><h2 class=\"ds-section\">Money tools</h2><div class=\"ds-group\"><button class=\"ds-row\"><span class=\"ds-icon\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"M3 6h17v14H3z M3 6V4h14v2 M16 11h5v5h-5z\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span><span class=\"ds-copy\"><span class=\"ds-title\">Accounts</span><span class=\"ds-desc\">Cash, bank, cards and e-wallets.</span></span><span class=\"ds-arrow\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"m9 6 6 6-6 6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span></button><div class=\"ds-rule\"></div><button class=\"ds-row\"><span class=\"ds-icon\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"M6 3h8l4 4v14H6z M14 3v5h4 M9 12h6 M9 16h6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span><span class=\"ds-copy\"><span class=\"ds-title\">LHDN Tax Relief</span><span class=\"ds-desc\">Organize and review your claims.</span></span><span class=\"ds-arrow\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" aria-hidden=\"true\"><path d=\"m9 6 6 6-6 6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span></button><div class=\"ds-rule\"></div></div></section></div>",
+      "css": ".ds-row{width:100%;min-height:76px;padding:14px 0;display:flex;align-items:center;gap:14px;border:0;border-radius:12px;background:transparent;text-align:left;color:#0E3E3E;font-family:Poppins,sans-serif}.ds-row:active{background:#DFF7E2}.ds-row:focus-visible{outline:2px solid #087D65;outline-offset:3px}.ds-row:disabled{opacity:.55}.ds-icon{width:44px;height:44px;flex-shrink:0;border-radius:12px;background:#DFF7E2;display:grid;place-items:center}.ds-copy{flex:1;min-width:0;display:grid;gap:3px}.ds-title{font-size:16px;line-height:24px;font-weight:700}.ds-desc{font-size:13px;line-height:21px;color:#617470}.ds-arrow{color:#617470}.ds-rule{height:1px;background:#C9DAD4}.ds-sheet-surround{background:#0E3E3E;padding-top:24px}.ds-sheet{background:#F1FFF3;border-radius:40px 40px 0 0;padding:28px 24px}.ds-section{margin:0;color:#0E3E3E;font-family:Poppins,sans-serif;font-size:20px;line-height:30px;letter-spacing:-.4px;font-weight:700}.ds-group{margin-top:8px}"
+    },
+    {
+      "name": "Illustrative receipt paper",
+      "kind": "card",
+      "refersTo": "receipt-paper",
+      "description": "Static excerpt of the onboarding example receipt; deliberately labeled illustrative. Not user transaction data.",
+      "html": "<div class=\"ds-receipt-stage\"><article class=\"ds-receipt\" aria-label=\"Example receipt\"><h3 class=\"ds-merchant\">Lime Café</h3><p class=\"ds-date\">12 Oct 2026 · 10:24 AM</p><div class=\"ds-receipt-rule\"></div><div class=\"ds-line\"><span>Iced latte</span><span>RM 11.50</span></div><div class=\"ds-line\"><span>Butter croissant</span><span>RM 7.00</span></div><div class=\"ds-receipt-rule\"></div><div class=\"ds-line\"><span class=\"ds-total-label\">Total</span><strong class=\"ds-total\">RM 18.50</strong></div><p class=\"ds-category\">Example receipt</p></article></div>",
+      "css": ".ds-receipt-stage{background:#DFF7E2;border-radius:32px;padding:30px;display:grid;place-items:center}.ds-receipt{width:225px;padding:18px 20px 13px;border-radius:8px;background:#FFFFFF;color:#093030;font-family:Poppins,sans-serif;transform:rotate(-5deg);box-shadow:0 8px 22px rgba(4,42,38,.14)}.ds-merchant{margin:0;text-align:center;font-size:18px;line-height:29px;letter-spacing:-.4px;font-weight:700}.ds-date{margin:1px 0 0;color:#617470;text-align:center;font-size:9px;line-height:15px}.ds-receipt-rule{border-top:1px dashed #C9DAD4;margin:13px 0}.ds-line{display:flex;align-items:center;justify-content:space-between;gap:7px;font-size:10px;line-height:19px;font-variant-numeric:tabular-nums}.ds-total-label{font-size:12px}.ds-total{font-size:17px;line-height:28px;letter-spacing:-.4px}.ds-category{margin:13px 0 0;padding-top:9px;border-top:1px solid #C9DAD4;text-align:center;color:#617470;font-size:9px;line-height:15px}"
+    },
+    {
+      "name": "Existing five-tab dock",
+      "kind": "nav",
+      "refersTo": "tab-dock",
+      "description": "Static label/state excerpt of the unchanged five-tab shell; native icons, raised Scan control, navigation, safe-area positioning, springs and haptics are documented in DESIGN.md and not simulated.",
+      "html": "<nav class=\"ds-dock\" aria-label=\"Main navigation\"><button class=\"ds-tab\">Home</button><button class=\"ds-tab\">Learn</button><button class=\"ds-tab\">Scan</button><button class=\"ds-tab\">Fin</button><button class=\"ds-tab ds-selected\" aria-current=\"page\">Profile</button></nav>",
+      "css": ".ds-dock{display:flex;align-items:center;height:78px;padding:0 5px;border:1px solid #24594F;border-radius:30px;background:#0E3E3E;box-shadow:0 8px 22px rgba(4,42,38,.26)}.ds-tab{position:relative;flex:1;height:76px;border:0;background:transparent;color:#A9C9BE;font-family:Poppins,sans-serif;font-size:10px;line-height:15px;display:grid;place-items:center}.ds-selected{color:#00D09E;font-weight:700}.ds-selected:before{content:'';position:absolute;top:5px;width:25px;height:3px;border-radius:2px;background:#00D09E}"
+    }
+  ],
+  "narrative": {
+    "overview": "SafeSpend's confirmed brand is calm and trustworthy. Poppins, mint and deep teal connect the approved Mint Welcome and Receipt Focus onboarding to the approved Profile implementation. Flat tonal surfaces, clear type and familiar native controls make account actions easy to recognize.\n\nThis is a source record for those approved surfaces, not evidence of a completed application-wide migration. The Profile approval extends the existing identity; its composition is scoped to `.impeccable/surfaces/profile.md`. No new creative metaphor or replacement identity has been selected.",
+    "keyCharacteristics": [
+      "Poppins Regular and Bold, with readable supporting text.",
+      "Mint actions, deep-teal structure and soft offwhite surfaces.",
+      "Rounded sheets and simple outline iconography.",
+      "Native text scaling, safe areas and scrollable content.",
+      "Honest identity, loading and device capability states."
+    ],
+    "rules": [],
+    "dos": [
+      "**Do** preserve the approved Poppins, mint and deep-teal identity when extending onboarding or Profile.",
+      "**Do** keep Profile's native settings rows flat, separated and readable at larger text sizes.",
+      "**Do** preserve safe-area clearance, scroll access and the existing dock's ownership.",
+      "**Do** bind identity and photo states to the signed-in user and device controls to real capability."
+    ],
+    "donts": [
+      "**Don't** promote Profile's composition or contextual state colors into unaudited global defaults.",
+      "**Don't** turn phone frames, synthetic fixture captions or sample identities into application UI.",
+      "**Don't** claim Expo Web previews verify native device behavior.",
+      "**Don't** add Profile entry choreography or replace its native Switch with a decorative control."
+    ]
+  }
+}

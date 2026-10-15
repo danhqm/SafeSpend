@@ -24,5 +24,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#00D09E",
   },
   logo: { width: 112, height: 112 },
-  title: { color: "#0E3E3E", fontSize: 32, fontWeight: "700" },
+  title: { color: "#fff", fontSize: 32, fontWeight: "700" },
 });

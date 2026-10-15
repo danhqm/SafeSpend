@@ -1,0 +1,70 @@
+[
+  {
+    "test": "Grouped money tools and both finance actions are visible",
+    "pass": true
+  },
+  {
+    "test": "Edit forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Photo control forwards picker callback",
+    "pass": true
+  },
+  {
+    "test": "Accounts forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "LHDN forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Face ID control updates supported-device state",
+    "pass": true
+  },
+  {
+    "test": "Edit is disabled while profile photo is saving",
+    "pass": true
+  },
+  {
+    "test": "Photo control prevents repeated requests while busy",
+    "pass": true
+  },
+  {
+    "test": "Unsupported devices omit Face ID section",
+    "pass": true
+  },
+  {
+    "test": "Loading uses skeleton and disables identity actions",
+    "pass": true
+  },
+  {
+    "test": "Error offers retry and clears error on success",
+    "pass": true
+  },
+  {
+    "test": "Face ID update presents busy state and prevents repeat toggles",
+    "pass": true
+  },
+  {
+    "test": "Unavailable photo falls back to initials",
+    "pass": true
+  },
+  {
+    "test": "Logout forwards callback and prevents repeated requests",
+    "pass": true
+  },
+  {
+    "test": "Phone logout touch target clears floating dock",
+    "pass": true
+  },
+  {
+    "test": "Long names and emails wrap within compact content width",
+    "pass": true
+  },
+  {
+    "test": "Compact content scrolls to reachable logout",
+    "pass": true
+  }
+]

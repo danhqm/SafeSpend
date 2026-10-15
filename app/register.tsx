@@ -1,8 +1,10 @@
 // app/register.tsx
-import { useRouter } from "expo-router";
-import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
-import React, { useState } from "react";
+import DateTimePicker, {
+  DateTimePickerAndroid,
+} from "@react-native-community/datetimepicker";
+import { useRouter } from "expo-router";
+import { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -16,8 +18,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { supabase } from "../utils/supabase";
 import { emailConfirmationRedirect } from "../utils/auth-redirect";
+import { supabase } from "../utils/supabase";
 
 const minimumBirthDate = new Date(1900, 0, 1);
 
@@ -28,7 +30,11 @@ function formatBirthDate(date: Date) {
 function parseBirthDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+  );
   return formatBirthDate(date) === value ? date : null;
 }
 
@@ -54,7 +60,8 @@ export default function Register() {
         minimumDate: minimumBirthDate,
         maximumDate: new Date(),
         onChange: (event, selectedDate) => {
-          if (event.type === "set" && selectedDate) setDob(formatBirthDate(selectedDate));
+          if (event.type === "set" && selectedDate)
+            setDob(formatBirthDate(selectedDate));
         },
       });
     } else {
@@ -73,7 +80,10 @@ export default function Register() {
       return;
     }
     const parsedDob = dob ? parseBirthDate(dob) : null;
-    if (dob && (!parsedDob || parsedDob < minimumBirthDate || parsedDob > new Date())) {
+    if (
+      dob &&
+      (!parsedDob || parsedDob < minimumBirthDate || parsedDob > new Date())
+    ) {
       Alert.alert("Error", "Please choose a valid date of birth");
       return;
     }
@@ -164,7 +174,13 @@ export default function Register() {
               style={styles.dateInput}
             >
               <Text style={[styles.dateText, !dob && styles.datePlaceholder]}>
-                {dob ? parseBirthDate(dob)?.toLocaleDateString("en-MY", { day: "numeric", month: "long", year: "numeric" }) : "Choose your date of birth"}
+                {dob
+                  ? parseBirthDate(dob)?.toLocaleDateString("en-MY", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })
+                  : "Choose your date of birth"}
               </Text>
               <Ionicons name="calendar-outline" size={22} color="#0E3E3E" />
             </Pressable>
@@ -220,7 +236,9 @@ export default function Register() {
         >
           <View style={styles.pickerBackdrop}>
             <View style={styles.pickerSheet}>
-              <Text style={styles.pickerHeading}>Choose your date of birth</Text>
+              <Text style={styles.pickerHeading}>
+                Choose your date of birth
+              </Text>
               <DateTimePicker
                 value={pickerDate}
                 mode="date"
@@ -233,7 +251,10 @@ export default function Register() {
                 style={styles.picker}
               />
               <View style={styles.pickerActions}>
-                <Pressable onPress={() => setPickerVisible(false)} style={styles.pickerAction}>
+                <Pressable
+                  onPress={() => setPickerVisible(false)}
+                  style={[styles.pickerAction, styles.pickerCancel]}
+                >
                   <Text style={styles.pickerCancelText}>Cancel</Text>
                 </Pressable>
                 <Pressable
@@ -316,14 +337,41 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  dateText: { color: "#0E3E3E", fontFamily: "Poppins_400Regular", fontSize: 16 },
+  dateText: {
+    color: "#0E3E3E",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 16,
+  },
   datePlaceholder: { color: "#9DBDB0" },
-  pickerBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0008", padding: 10 },
-  pickerSheet: { width: "100%", maxWidth: 400, borderRadius: 20, backgroundColor: "#fff", padding: 10 },
-  pickerHeading: { color: "#0E3E3E", fontFamily: "Poppins_700Bold", fontSize: 18, textAlign: "center" },
+  pickerBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0008",
+    padding: 10,
+  },
+  pickerSheet: {
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: 20,
+    backgroundColor: "#0E3E3E",
+    padding: 10,
+  },
+  pickerHeading: {
+    color: "#0E3E3E",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 18,
+    textAlign: "center",
+  },
   picker: { alignSelf: "center", width: "100%", height: 340 },
   pickerActions: { flexDirection: "row", gap: 12, marginTop: 16 },
-  pickerAction: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 12 },
+  pickerAction: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  pickerCancel: { backgroundColor: "#fff" },
   pickerCancelText: { color: "#0E3E3E", fontFamily: "Poppins_700Bold" },
   pickerDone: { backgroundColor: "#00D09E" },
   pickerDoneText: { color: "#0E3E3E", fontFamily: "Poppins_700Bold" },
