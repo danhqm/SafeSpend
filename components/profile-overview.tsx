@@ -39,6 +39,7 @@ type ProfileOverviewProps = {
   onToggleFaceId: () => void;
   onLogout: () => void;
   onRetry: () => void;
+  onGuide?: () => void;
 };
 
 function Avatar({ identity, busy, disabled, onPress }: {
@@ -211,6 +212,13 @@ export function ProfileOverview(props: ProfileOverviewProps) {
               </View>
             )}
 
+            {props.onGuide && <View style={styles.securitySection}>
+              <Text accessibilityRole="header" style={styles.sectionTitle}>Getting started</Text>
+              <ActionRow icon="compass-outline" title="SafeSpend guide"
+                description="Replay the tour and pick up your first steps." onPress={props.onGuide}
+                disabled={identityDisabled} />
+              <View style={styles.divider} />
+            </View>}
             <View style={styles.logoutSection}>
               <ActionRow icon="log-out-outline" title={props.signingOut ? "Logging out…" : "Log out"}
                 danger busy={props.signingOut} disabled={props.photoBusy || props.faceIdBusy} onPress={props.onLogout} />

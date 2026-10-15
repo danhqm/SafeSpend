@@ -162,5 +162,6 @@ export default function ProfileScreen() {
     onToggleFaceId={() => void toggleFaceId()}
     onLogout={() => void logout()}
     onRetry={() => void loadProfile()}
+    onGuide={() => router.push({ pathname: "/(tabs)", params: { guide: String(Date.now()) } })}
   />;
 }

@@ -1,0 +1,78 @@
+[
+  {
+    "test": "Optional welcome opens expense walkthrough",
+    "pass": true
+  },
+  {
+    "test": "Maybe later dismisses welcome without blocking Home",
+    "pass": true
+  },
+  {
+    "test": "Dismissal survives browser reload",
+    "pass": true
+  },
+  {
+    "test": "Profile replay begins at expense step",
+    "pass": true
+  },
+  {
+    "test": "Next opens spending explanation",
+    "pass": true
+  },
+  {
+    "test": "Back returns to expense explanation",
+    "pass": true
+  },
+  {
+    "test": "Manual entry action forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Tour navigation does not complete financial tasks",
+    "pass": true
+  },
+  {
+    "test": "Budget action forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Only overview acknowledgment advances checklist without a save",
+    "pass": true
+  },
+  {
+    "test": "Confirmed expense fact advances its milestone",
+    "pass": true
+  },
+  {
+    "test": "Saved overall budget fact completes setup",
+    "pass": true
+  },
+  {
+    "test": "Home Replay tour restarts at step one",
+    "pass": true
+  },
+  {
+    "test": "Scan action forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Escape dismisses the optional tour",
+    "pass": true
+  },
+  {
+    "test": "Compact-screen panel can reach Finish tour",
+    "pass": true
+  },
+  {
+    "test": "Tablet tour remains bounded to 420 pixels",
+    "pass": true
+  },
+  {
+    "test": "Landscape fallback stays dismissible",
+    "pass": true
+  },
+  {
+    "test": "Keyboard focus reaches Skip tour with a visible outline",
+    "pass": true
+  }
+]

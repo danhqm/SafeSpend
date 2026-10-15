@@ -15,16 +15,28 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { authenticatedApiFetch } from "../../utils/api";
+import { FeatureGuideHelp, FeatureGuideIntro, FeatureGuideStatus, FeatureGuideTour, prepareFinGuideQuestion } from "../../components/feature-guide";
+import { useFeatureGuide } from "../../hooks/use-feature-guide";
+import { useGuideTargets } from "../../hooks/use-guide-targets";
 
 type ChatMessage = { role: "user" | "assistant"; text: string };
 
 export default function Chatbot() {
+  const guide = useFeatureGuide("fin");
+  const guideTargets = useGuideTargets(guide.step);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const sendingRef = useRef(false);
+  const inputRef = useRef<TextInput>(null);
+
+  const openGuide = () => { Keyboard.dismiss(); guide.open(true); };
+  const useGuideExample = (step: 0 | 1 | 2) => {
+    setInput((current) => prepareFinGuideQuestion(current, step));
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
 
   useEffect(() => {
     const showEvent =
@@ -92,6 +104,9 @@ export default function Chatbot() {
       <StatusBar style="dark" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Fin</Text>
+        <View style={styles.guideHelp}>
+          <FeatureGuideHelp name="Fin" onPress={openGuide} disabled={!guide.ready || loading} />
+        </View>
       </View>
       <KeyboardAvoidingView
         style={styles.keyboardAvoiding}
@@ -112,13 +127,15 @@ export default function Chatbot() {
             </View>
           </View>
 
+          <View ref={guideTargets.ref(1)} collapsable={false} onLayout={guideTargets.measure} style={{ flex: 1 }}>
           <ScrollView
             ref={scrollViewRef}
             style={styles.chatContainer}
             contentContainerStyle={{ paddingBottom: 24 }}
             keyboardShouldPersistTaps="handled"
-            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+            onContentSizeChange={() => { if (messages.length || loading) scrollViewRef.current?.scrollToEnd({ animated: true }); }}
           >
+            {messages.length === 0 && !keyboardVisible && <FeatureGuideIntro feature="fin" guide={guide} />}
             {messages.map((msg, i) => (
               <View
                 key={i}
@@ -142,14 +159,20 @@ export default function Chatbot() {
               </View>
             )}
           </ScrollView>
+          </View>
+
+          <FeatureGuideStatus guide={guide} />
 
           <View
+            ref={guideTargets.ref(0)} collapsable={false} onLayout={guideTargets.measure}
             style={[
               styles.inputContainer,
               keyboardVisible && styles.inputContainerKeyboard,
             ]}
           >
             <TextInput
+              ref={inputRef}
+              accessibilityLabel="Message Fin"
               style={styles.input}
               placeholder="Type a message..."
               placeholderTextColor="#666"
@@ -159,6 +182,7 @@ export default function Chatbot() {
               returnKeyType="send"
             />
             <TouchableOpacity
+              ref={guideTargets.ref(2)} onLayout={guideTargets.measure}
               onPress={sendMessage}
               style={[styles.sendButton, loading && styles.sendButtonDisabled]}
               disabled={loading || !input.trim()}
@@ -170,6 +194,8 @@ export default function Chatbot() {
           </View>
         </View>
       </KeyboardAvoidingView>
+      <FeatureGuideTour feature="fin" guide={guide} target={guideTargets.target}
+        onMeasure={guideTargets.measure} onAction={useGuideExample} />
     </SafeAreaView>
   );
 }
@@ -197,6 +223,7 @@ const styles = StyleSheet.create({
     color: "#052224",
     lineHeight: 24,
   },
+  guideHelp: { position: "absolute", right: 16, top: 12 },
   keyboardAvoiding: {
     flex: 1,
     backgroundColor: "#fff",

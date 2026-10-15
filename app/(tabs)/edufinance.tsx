@@ -1,4 +1,7 @@
 import { WeeklyMoneyMissionCard } from "@/components/weekly-money-mission-card";
+import { FeatureGuideHelp, FeatureGuideIntro, FeatureGuideStatus, FeatureGuideTour } from "@/components/feature-guide";
+import { useFeatureGuide } from "@/hooks/use-feature-guide";
+import { useGuideTargets } from "@/hooks/use-guide-targets";
 import {
   getLocalMonday,
   localLearningDate,
@@ -13,7 +16,7 @@ import { homeCache } from "@/utils/home-cache";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   AppState,
@@ -78,6 +81,9 @@ const PATH_THEMES: Record<string, PathTheme> = {
 export default function EduFinanceScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const guide = useFeatureGuide("learn");
+  const guideScroll = useRef<ScrollView>(null);
+  const guideTargets = useGuideTargets(guide.step, guideScroll);
   const { openGoal } = useLocalSearchParams<{ openGoal?: string }>();
   const [weekStart, setWeekStart] = useState(() =>
     localLearningDate(getLocalMonday(new Date())),
@@ -368,10 +374,13 @@ export default function EduFinanceScreen() {
   return (
     <>
       <ScrollView
+        ref={guideScroll}
+        onScroll={guideTargets.measure}
+        scrollEventThrottle={16}
         style={styles.container}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 110 },
+          { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 110 + guideTargets.bottomSpace },
         ]}
         contentInsetAdjustmentBehavior="automatic"
         refreshControl={
@@ -379,11 +388,15 @@ export default function EduFinanceScreen() {
         }
       >
         <View style={styles.titleRow}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.eyebrow}>SAFE SPEND</Text>
             <Text style={styles.screenTitle}>Money Skills</Text>
           </View>
+          <FeatureGuideHelp name="Learn" onPress={() => guide.open(true)} disabled={!guide.ready || loading || !!error || goalModalVisible || openGoal === "1"} />
         </View>
+
+        {!loading && !error && !goalModalVisible && openGoal !== "1" && <FeatureGuideIntro feature="learn" guide={guide} />}
+        <FeatureGuideStatus guide={guide} />
 
         <View style={styles.heroCard}>
           <Text style={styles.heroEyebrow}>LEARN. DECIDE. ACT.</Text>
@@ -412,7 +425,8 @@ export default function EduFinanceScreen() {
 
         {error ? <Text selectable style={styles.errorText}>{error}</Text> : null}
 
-        <View style={styles.sectionHeader}>
+        <View ref={guideTargets.ref(1)} collapsable={false}
+          onLayout={(event) => guideTargets.layout(1, event)} style={styles.sectionHeader}>
           <View style={styles.sectionHeaderText}>
             <Text style={styles.sectionTitle}>Weekly money mission</Text>
             <Text selectable style={styles.sectionSubtitle}>
@@ -508,7 +522,8 @@ export default function EduFinanceScreen() {
           </View>
         )}
 
-        <View style={styles.sectionHeader}>
+        <View ref={guideTargets.ref(0)} collapsable={false}
+          onLayout={(event) => guideTargets.layout(0, event)} style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionTitle}>Foundation paths</Text>
             <Text style={styles.sectionSubtitle}>
@@ -623,8 +638,8 @@ export default function EduFinanceScreen() {
           </View>
         </View>
 
-        <View style={styles.goalCard}>
-          <View style={styles.goalHeader}>
+        <View style={styles.goalCard} onLayout={(event) => guideTargets.layout(2, event)}>
+          <View ref={guideTargets.ref(2)} collapsable={false} style={styles.goalHeader}>
             <View>
               <Text style={styles.sectionTitle}>Personal money goals</Text>
               <Text style={styles.goalWeek}>Week of {weekStart}</Text>
@@ -679,6 +694,11 @@ export default function EduFinanceScreen() {
           )}
         </View>
       </ScrollView>
+
+      {!loading && !error && <FeatureGuideTour feature="learn" guide={guide} target={guideTargets.target}
+        onMeasure={guideTargets.measure} onAction={(step) => {
+          requestAnimationFrame(() => guideTargets.scrollTo(step));
+        }} />}
 
       <Modal
         visible={goalModalVisible || openGoal === "1"}
@@ -737,7 +757,7 @@ export default function EduFinanceScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F4F8F6" },
   content: { paddingHorizontal: 18, gap: 14 },
-  titleRow: { flexDirection: "row", alignItems: "center" },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   eyebrow: { color: "#4D6F68", fontSize: 10, fontWeight: "800", letterSpacing: 1.3 },
   screenTitle: { color: INK, fontSize: 27, fontWeight: "800" },
   heroCard: { padding: 20, borderRadius: 22, backgroundColor: INK, borderCurve: "continuous" },

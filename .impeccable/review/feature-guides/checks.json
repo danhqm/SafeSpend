@@ -1,0 +1,150 @@
+[
+  {
+    "test": "Learn first visit offers optional introduction",
+    "pass": true
+  },
+  {
+    "test": "Learn foundation spotlight resolves after scrolling",
+    "pass": true
+  },
+  {
+    "test": "Learn tour explains weekly mission",
+    "pass": true
+  },
+  {
+    "test": "Back returns to foundation explanation",
+    "pass": true
+  },
+  {
+    "test": "Learn primary action forwards the selected section",
+    "pass": true
+  },
+  {
+    "test": "Learn resumes the next explanation after action",
+    "pass": true
+  },
+  {
+    "test": "Learn tour explains personal goals",
+    "pass": true
+  },
+  {
+    "test": "Finishing Learn hides its invitation",
+    "pass": true
+  },
+  {
+    "test": "Header help replays Learn from step one",
+    "pass": true
+  },
+  {
+    "test": "Learn dismissal survives reload",
+    "pass": true
+  },
+  {
+    "test": "Another user receives independent Learn preferences",
+    "pass": true
+  },
+  {
+    "test": "Maybe later dismisses optional feature introduction",
+    "pass": true
+  },
+  {
+    "test": "Fin first visit is separate from Learn dismissal",
+    "pass": true
+  },
+  {
+    "test": "Fin example prepares the real shared draft helper text",
+    "pass": true
+  },
+  {
+    "test": "Example action does not send a message in fixture",
+    "pass": true
+  },
+  {
+    "test": "Fin resumes with follow-up explanation",
+    "pass": true
+  },
+  {
+    "test": "Fin guide preserves an existing unsent draft",
+    "pass": true
+  },
+  {
+    "test": "Fin explains verifying important details",
+    "pass": true
+  },
+  {
+    "test": "Fin own-question action preserves the draft",
+    "pass": true
+  },
+  {
+    "test": "Tax Relief has its own optional invitation",
+    "pass": true
+  },
+  {
+    "test": "Tax tour starts with assessment-year context",
+    "pass": true
+  },
+  {
+    "test": "Tax filing-setup action forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Tax tour resumes at evidence-entry explanation",
+    "pass": true
+  },
+  {
+    "test": "Tax evidence-entry action forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Tax tour explains eligibility review and Breakdown",
+    "pass": true
+  },
+  {
+    "test": "Tax Breakdown action forwards its callback",
+    "pass": true
+  },
+  {
+    "test": "Session-only warning stays visible after completion",
+    "pass": true
+  },
+  {
+    "test": "Storage warning is also presented inside the open tour",
+    "pass": true
+  },
+  {
+    "test": "Escape dismisses the section tour",
+    "pass": true
+  },
+  {
+    "test": "Session-only warning remains after Skip",
+    "pass": true
+  },
+  {
+    "test": "Compact Tax Relief tour reaches Finish",
+    "pass": true
+  },
+  {
+    "test": "Tablet Learn panel is bounded to 420 pixels",
+    "pass": true
+  },
+  {
+    "test": "Landscape Fin panel scrolls to Next",
+    "pass": true
+  },
+  {
+    "test": "Home wrapper keeps scan and manual-entry actions",
+    "pass": true
+  },
+  {
+    "test": "Home wrapper retains overview acknowledgment step",
+    "pass": true
+  },
+  {
+    "test": "Home wrapper retains budget and finish controls",
+    "pass": true
+  },
+  {
+    "test": "Home budget callback remains wired through shared panel",
+    "pass": true
+  }
+]

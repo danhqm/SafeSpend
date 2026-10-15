@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router/react-navigation";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Image,
@@ -9,10 +9,13 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MonthlySpendingChart } from "../../components/monthly-spending-chart";
+import { HomeGuideCard, HomeGuideTour, type GuideTarget } from "../../components/home-guide";
+import { useHomeGuide } from "../../hooks/use-home-guide";
 import { IconSymbol } from "../../components/ui/icon-symbol";
 import {
   expenseEffect,
@@ -114,6 +117,32 @@ function getSmartStatus(totalExpense: number, monthlyBudget: number) {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { guide: guideParam } = useLocalSearchParams<{ guide?: string }>();
+  const guide = useHomeGuide(guideParam);
+  const guideWindow = useWindowDimensions();
+  const guideScroll = useRef<ScrollView>(null);
+  const scanTarget = useRef<View>(null);
+  const summaryTarget = useRef<View>(null);
+  const budgetTarget = useRef<View>(null);
+  const [guideTarget, setGuideTarget] = useState<(GuideTarget & { step: number | null }) | null>(null);
+  const measureGuide = React.useCallback(() => {
+    const target = guide.step === 0 ? scanTarget : guide.step === 1 ? summaryTarget : budgetTarget;
+    target.current?.measureInWindow((x, y, width, height) => {
+      setGuideTarget(width > 0 && height > 0 ? { x, y, width, height, step: guide.step } : null);
+    });
+  }, [guide.step]);
+
+  useEffect(() => {
+    if (guide.step === null) return;
+    guideScroll.current?.scrollTo({ y: 0, animated: false });
+    const frame = requestAnimationFrame(measureGuide);
+    return () => cancelAnimationFrame(frame);
+  }, [guide.step, measureGuide, guideWindow.width, guideWindow.height, guideWindow.fontScale]);
+
+  const openGuideTask = (path: "/receiptscanner" | "/add-transaction" | "/budgets") => {
+    guide.leaveForTask();
+    router.push(path);
+  };
 
   const [username, setUsername] = useState<string>("Guest");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -530,6 +559,8 @@ export default function HomeScreen() {
 
       <View style={styles.statsRow}>
         <TouchableOpacity
+          ref={budgetTarget}
+          onLayout={guide.step === 2 ? measureGuide : undefined}
           style={styles.statBox}
           onPress={() => router.push("/budgets")}
           accessibilityLabel="Open monthly budget"
@@ -543,7 +574,8 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
 
-        <View style={[styles.statBox, styles.statBoxRight]}>
+        <View ref={summaryTarget} collapsable={false} onLayout={guide.step === 1 ? measureGuide : undefined}
+          style={[styles.statBox, styles.statBoxRight]}>
           <View style={styles.statLabelRow}>
             <Ionicons name="card-outline" size={16} color="#052224" />
             <Text style={styles.statLabel}>Total Expense</Text>
@@ -573,6 +605,7 @@ export default function HomeScreen() {
 
       <View style={styles.bottomSheet}>
         <ScrollView
+          ref={guideScroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 125 }}
           refreshControl={
@@ -585,6 +618,8 @@ export default function HomeScreen() {
               <Text style={styles.cacheNoticeText}>{homeCacheNotice}</Text>
             </View>
           )}
+          {guide.step === null && <HomeGuideCard progress={guide.progress} notice={guide.notice}
+            onOpen={guide.open} onDismiss={guide.dismiss} />}
           <View style={styles.ctaRow}>
             <TouchableOpacity
               style={[styles.ctaButton, styles.ctaFinButton]}
@@ -603,6 +638,8 @@ export default function HomeScreen() {
               <Text style={[styles.ctaText, styles.ctaFinText]}>Ask Fin</Text>
             </TouchableOpacity>
             <TouchableOpacity
+              ref={scanTarget}
+              onLayout={guide.step === 0 ? measureGuide : undefined}
               style={[styles.ctaButton, styles.ctaScanButton]}
               onPress={() => router.push("/receiptscanner")}
               activeOpacity={0.86}
@@ -773,6 +810,10 @@ export default function HomeScreen() {
           )}
         </ScrollView>
       </View>
+      <HomeGuideTour step={guide.step} target={guideTarget?.step === guide.step ? guideTarget : null} onMeasure={measureGuide}
+        onNext={guide.next} onBack={guide.back} onClose={guide.close}
+        onScan={() => openGuideTask("/receiptscanner")} onManual={() => openGuideTask("/add-transaction")}
+        onBudget={() => openGuideTask("/budgets")} />
     </SafeAreaView>
   );
 }

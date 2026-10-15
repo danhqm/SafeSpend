@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -9,6 +9,9 @@ import { authenticatedApiFetch } from "../utils/api";
 import { addSignedReceiptImage } from "../utils/receipt-images";
 import { calculateClaims, money, parseAmount, TAX_RULES, TaxClaim, validDate } from "../types/tax";
 import { TaxFilingProfile, TaxHouseholdMember } from "../types/tax-filing";
+import { FeatureGuideHelp, FeatureGuideIntro, FeatureGuideStatus, FeatureGuideTour } from "../components/feature-guide";
+import { useFeatureGuide } from "../hooks/use-feature-guide";
+import { useGuideTargets } from "../hooks/use-guide-targets";
 
 type Receipt = { id: string; merchant_name: string; total_amount: number; receipt_date: string; image_url: string | null; items: {name: string; price: number}[] | null };
 type Draft = TaxClaim & { amountText: string; eligibleText: string; dateText: string };
@@ -22,6 +25,9 @@ const errorMessage = (e: unknown) => e instanceof Error ? e.message : typeof e =
 
 export default function LHDNClaimScreen() {
   const router = useRouter();
+  const guide = useFeatureGuide("lhdn");
+  const guideScroll = useRef<ScrollView>(null);
+  const guideTargets = useGuideTargets(guide.step, guideScroll);
   const [year, setYear] = useState(2025);
   const [claims, setClaims] = useState<TaxClaim[]>([]);
   const [filingProfiles, setFilingProfiles] = useState<TaxFilingProfile[]>([]);
@@ -178,9 +184,14 @@ export default function LHDNClaimScreen() {
         <Ionicons name="arrow-back" size={24} color="#fff" />
       </Pressable>
       <Text style={s.heading}>Tax Relief</Text>
+      <View style={s.guideHelp}><FeatureGuideHelp name="Tax Relief" light
+        disabled={!guide.ready || loading || !!error || busy || !!draft || !!image} onPress={() => guide.open(true)} /></View>
     </View>
-    <ScrollView style={s.page} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic">
-      <View style={s.yearTabs}>{years.map(y=><Pressable key={y} onPress={()=>setYear(y)} style={[s.yearTab,y===year && s.yearTabActive]} accessibilityRole="button" accessibilityState={{selected:year===y}}><Text style={[s.yearText,y===year && s.yearTextActive]}>YA {y}</Text></Pressable>)}</View>
+    <ScrollView ref={guideScroll} onScroll={guideTargets.measure} scrollEventThrottle={16}
+      style={s.page} contentContainerStyle={[s.content, { paddingBottom: 48 + guideTargets.bottomSpace }]} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic">
+      {!loading && !error && !busy && <FeatureGuideIntro feature="lhdn" guide={guide} />}
+      <FeatureGuideStatus guide={guide} />
+      <View ref={guideTargets.ref(0)} collapsable={false} onLayout={(event) => guideTargets.layout(0, event)} style={s.yearTabs}>{years.map(y=><Pressable key={y} onPress={()=>setYear(y)} style={[s.yearTab,y===year && s.yearTabActive]} accessibilityRole="button" accessibilityState={{selected:year===y}}><Text style={[s.yearText,y===year && s.yearTextActive]}>YA {y}</Text></Pressable>)}</View>
       <Pressable accessibilityRole="button" onPress={()=>router.push({pathname:"/tax-filing",params:{year:String(year)}})} style={s.profileEntry}>
         <View style={s.profileIcon}><Ionicons name="document-text-outline" size={24} color="#006B54" /></View>
         <View style={s.actionText}><Text style={s.cardTitle}>Filing profile & family</Text>
@@ -211,7 +222,7 @@ export default function LHDNClaimScreen() {
             <Text style={s.sub}>Review dates, set a check-in and export your notes</Text></View>
           <Ionicons name="chevron-forward" size={20} color="#006B54" />
         </Pressable>
-        <View style={s.actions}>
+        <View ref={guideTargets.ref(1)} collapsable={false} onLayout={(event) => guideTargets.layout(1, event)} style={s.actions}>
           <Pressable accessibilityRole="button" disabled={busy} onPress={()=>{setDraft(emptyClaim(year));setReceipt(null);setSelectedItems([]);setRulePicker(false);}} style={[s.addAction,busy&&s.disabled]}>
             <View style={s.actionIcon}><Ionicons name="add" size={24} color="#006B54"/></View>
             <View style={s.actionText}><Text style={s.addTitle}>Add claim</Text><Text style={s.actionSubtitle}>Enter relief details yourself</Text></View>
@@ -230,7 +241,7 @@ export default function LHDNClaimScreen() {
         </View>
         {busy && <ActivityIndicator accessibilityLabel="Processing receipt"/>}
         <Text style={s.sub}>Use Add claim for annual statements or personal reliefs. Keep the original supporting documents and record only qualifying items.</Text>
-        <View style={s.tabBar}>{["Claims","Breakdown"].map(t=><Pressable key={t} style={[s.tab,tab===t&&s.tabActive]} onPress={()=>setTab(t)} accessibilityRole="button" accessibilityState={{selected:tab===t}}><Text style={[s.tabText,tab===t&&s.tabTextActive]}>{t}</Text></Pressable>)}</View>
+        <View ref={guideTargets.ref(2)} collapsable={false} onLayout={(event) => guideTargets.layout(2, event)} style={s.tabBar}>{["Claims","Breakdown"].map(t=><Pressable key={t} style={[s.tab,tab===t&&s.tabActive]} onPress={()=>setTab(t)} accessibilityRole="button" accessibilityState={{selected:tab===t}}><Text style={[s.tabText,tab===t&&s.tabTextActive]}>{t}</Text></Pressable>)}</View>
         {tab==="Breakdown" && isNonResident ? <Text style={s.notice}>The personal-relief breakdown is paused because your filing profile says non-resident. Your claims are still saved.</Text> : tab==="Claims" ? visible.length===0 ? <Text style={s.empty}>No claims for YA {year}. Add a claim or scan a receipt to get started.</Text> :
           visible.map(c=><Pressable key={c.id} style={s.card} onPress={()=>void openClaim(c)} disabled={busy} accessibilityRole="button">
             <Text style={s.cardTitle}>{c.title}</Text><Text style={s.sub}>{TAX_RULES.find(r=>r.id===c.rule_id)?.title || "Choose a relief"}</Text>
@@ -307,12 +318,21 @@ export default function LHDNClaimScreen() {
       </KeyboardAvoidingView></SafeAreaView>
       <Modal visible={!!image} onRequestClose={()=>setImage(null)}><SafeAreaView style={s.modalSafe}>{button("Close image",()=>setImage(null),true)}{image&&<Image source={{uri:image}} style={s.flex} resizeMode="contain"/>}</SafeAreaView></Modal>
     </Modal>
+    {!loading && !error && !busy && <FeatureGuideTour feature="lhdn" guide={guide} target={guideTargets.target}
+      onMeasure={guideTargets.measure} onAction={(step) => {
+        if (step === 0) router.push({ pathname: "/tax-filing", params: { year: String(year) } });
+        else {
+          if (step === 2) setTab("Breakdown");
+          requestAnimationFrame(() => guideTargets.scrollTo(step));
+        }
+      }} />}
   </SafeAreaView>;
 }
 const s = StyleSheet.create({
   safe:{flex:1,backgroundColor:"#007F69"},modalSafe:{flex:1,backgroundColor:"#f7fffb"},flex:{flex:1},
   page:{flex:1,backgroundColor:"#f7fffb"},
   header:{minHeight:72,paddingHorizontal:20,alignItems:"center",justifyContent:"center",flexDirection:"row",backgroundColor:"#007F69"},
+  guideHelp:{position:"absolute",right:12},
   backButton:{position:"absolute",left:20,width:44,height:44,alignItems:"center",justifyContent:"center",borderRadius:16,backgroundColor:"#006A56",zIndex:1},
   heading:{fontSize:24,fontWeight:"700",color:"#fff",textAlign:"center"},sub:{fontSize:13,color:"#4A665C",lineHeight:20},
   content:{padding:20,gap:18,paddingBottom:48},row:{flexDirection:"row",flexWrap:"wrap",gap:10},
