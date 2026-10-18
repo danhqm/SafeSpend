@@ -56,7 +56,7 @@ function localMonth(timestamp: number) {
 }
 
 function key(userId: string, suffix: string) {
-  return `${PREFIX}.${userId}.${suffix}`;
+  return `${PREFIX}.${userId}.v2.${suffix}`;
 }
 
 function parseRecord<T extends { savedAt: number }>(raw: string | null): T | null {
@@ -204,6 +204,12 @@ export function createHomeCache(store: Store) {
       }
       return enqueue(userId, async () => {
         const indexKey = key(userId, "months");
+        const legacyPrefix = `${PREFIX}.${userId}`;
+        let legacyMonths: string[] = [];
+        try {
+          const parsed: unknown = JSON.parse(await store.getItem(`${legacyPrefix}.months`) ?? "[]");
+          if (Array.isArray(parsed)) legacyMonths = parsed.filter((item): item is string => typeof item === "string");
+        } catch { /* Known legacy summary keys are still cleared. */ }
         let months: string[] = [];
         try {
           const parsed: unknown = JSON.parse(await store.getItem(indexKey) ?? "[]");
@@ -213,6 +219,10 @@ export function createHomeCache(store: Store) {
           await store.removeItem(ACTIVE_USER_KEY);
         }
         await Promise.all([
+          ...legacyMonths.map((month) => store.removeItem(`${legacyPrefix}.month.${month}`)),
+          store.removeItem(`${legacyPrefix}.months`),
+          store.removeItem(`${legacyPrefix}.home`),
+          store.removeItem(`${legacyPrefix}.fin`),
           ...months.map((month) => store.removeItem(key(userId, `month.${month}`))),
           store.removeItem(key(userId, "home")),
           store.removeItem(key(userId, "fin")),

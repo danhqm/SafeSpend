@@ -1,0 +1,31 @@
+Create one high-resolution portrait image of a fictional Malaysian bookshop receipt, for testing the personal lifestyle tax-relief workflow in SafeSpend. Use straight-on flat-scanned white thermal paper, sharp black monospaced type, light-gray background and generous margins. Keep every word, digit and item readable and aligned. No perspective distortion, hands, props, logos, barcodes, QR codes, identity numbers, real business registration numbers or claims of tax authority approval. This must be clearly marked as a SAMPLE and not usable as evidence of a real purchase.
+
+Print precisely this receipt text:
+
+DEMO BOOK CORNER
+Fictional Bookshop
+Kuala Lumpur, Malaysia
+SAMPLE RECEIPT
+--------------------------------
+RECEIPT: TEST-20251017-BOOKS-001
+DATE: 2025-10-17
+TIME: 14:30
+CURRENCY: MYR
+--------------------------------
+PRINTED BOOKS              MYR
+Personal Finance Basics  45.00
+Everyday Budgeting       39.90
+Home Cooking Guide       29.90
+--------------------------------
+SUBTOTAL                114.80
+TOTAL MYR               114.80
+CASH                    120.00
+CHANGE                    5.20
+--------------------------------
+3 books
+Thank you
+SAMPLE - FOR APP TESTING ONLY
+Not valid for reimbursement
+or actual tax claims
+
+No other fees, discounts or taxes. This is sample data representing personal-use printed book purchases, not a real transaction or a certificate of eligibility. Do not print any software instructions or tax advice on the receipt.

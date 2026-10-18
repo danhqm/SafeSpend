@@ -7,6 +7,7 @@ import { supabase } from '../utils/supabase';
 import { calculateClaims, money, parseAmount, RULE_VERSION, TaxClaim } from '../types/tax';
 import type { TaxFilingProfile } from '../types/tax-filing';
 import type { TaxAnnualInputs } from '../types/tax-estimate';
+import { fetchAllPages } from '../utils/pagination-core';
 import {
   estimateResidentEmploymentTax, YA2025_DONATION_SOURCE,
   YA2025_FORM_SOURCE, YA2025_REBATE_SOURCE, YA2025_TAX_RATE_SOURCE,
@@ -47,15 +48,8 @@ export default function TaxEstimateScreen() {
       if (profileResult.error) throw profileResult.error;
       if (inputsResult.error) throw inputsResult.error;
       if (businessResult.error) throw businessResult.error;
-      const allClaims: TaxClaim[] = [];
-      for (let offset = 0; ; offset += 500) {
-        const { data, error: claimsError } = await supabase.from('tax_claims').select('*')
-          .eq('user_id', auth.user.id).eq('tax_year', year)
-          .order('created_at', { ascending: false }).order('id').range(offset, offset + 499);
-        if (claimsError) throw claimsError;
-        allClaims.push(...((data ?? []) as TaxClaim[]));
-        if (!data || data.length < 500) break;
-      }
+      const allClaims = await fetchAllPages<TaxClaim>(() => supabase.from('tax_claims').select('*', {count:'exact'})
+        .eq('user_id', auth.user!.id).eq('tax_year', year).order('created_at', {ascending:false}));
       if (!active()) return;
       const inputs = inputsResult.data as TaxAnnualInputs | null;
       setUserId(auth.user.id);

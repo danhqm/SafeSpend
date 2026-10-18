@@ -4,6 +4,13 @@ const DEFAULT_LIMITS = {
   chat: { burstLimit: 10, burstWindowSeconds: 60, dailyLimit: 100 },
   ocr: { burstLimit: 5, burstWindowSeconds: 600, dailyLimit: 20 },
   "fin-insights": { burstLimit: 10, burstWindowSeconds: 3600, dailyLimit: 30 },
+  "account-delete": { burstLimit: 3, burstWindowSeconds: 600, dailyLimit: 10 },
+};
+
+const GLOBAL_LIMITS = {
+  chat: { burstLimit: 60, burstWindowSeconds: 60, dailyLimit: 1000 },
+  ocr: { burstLimit: 20, burstWindowSeconds: 600, dailyLimit: 200 },
+  "fin-insights": { burstLimit: 60, burstWindowSeconds: 3600, dailyLimit: 300 },
 };
 
 const DAILY_WINDOW_SECONDS = 24 * 60 * 60;
@@ -14,28 +21,36 @@ function positiveInteger(value, fallback) {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function limitsFor(endpoint) {
-  const defaults = DEFAULT_LIMITS[endpoint];
+function limitsFor(endpoint, env, global = false) {
+  const defaults = (global ? GLOBAL_LIMITS : DEFAULT_LIMITS)[endpoint];
   if (!defaults) throw new Error(`Unknown rate-limit endpoint: ${endpoint}`);
 
-  const prefix = endpoint.replaceAll("-", "_").toUpperCase();
+  const prefix = `${global ? "GLOBAL_" : ""}${endpoint.replaceAll("-", "_").toUpperCase()}`;
   return {
-    burstLimit: positiveInteger(process.env[`${prefix}_BURST_LIMIT`], defaults.burstLimit),
+    burstLimit: positiveInteger(env[`${prefix}_BURST_LIMIT`], defaults.burstLimit),
     burstWindowSeconds: positiveInteger(
-      process.env[`${prefix}_BURST_WINDOW_SECONDS`],
+      env[`${prefix}_BURST_WINDOW_SECONDS`],
       defaults.burstWindowSeconds,
     ),
-    dailyLimit: positiveInteger(process.env[`${prefix}_DAILY_LIMIT`], defaults.dailyLimit),
+    dailyLimit: positiveInteger(env[`${prefix}_DAILY_LIMIT`], defaults.dailyLimit),
   };
 }
 
-export async function enforceRateLimit(res, userId, endpoint) {
-  const limits = limitsFor(endpoint);
+function isQuotaResult(result) {
+  return result && typeof result.allowed === "boolean" &&
+    Number.isSafeInteger(result.burst_remaining) && result.burst_remaining >= 0 &&
+    Number.isSafeInteger(result.daily_remaining) && result.daily_remaining >= 0 &&
+    Number.isSafeInteger(result.retry_after) && result.retry_after >= 0 &&
+    (result.allowed ? result.limit_scope === null && result.retry_after === 0
+      : ["daily", "burst"].includes(result.limit_scope) && result.retry_after > 0);
+}
+
+async function consumeQuota(database, res, endpoint, limits, userId) {
   let data;
   let error;
   try {
-    ({ data, error } = await supabaseAdmin.rpc("consume_api_quota", {
-      p_user_id: userId,
+    ({ data, error } = await database.rpc(userId === undefined ? "consume_global_api_quota" : "consume_api_quota", {
+      ...(userId === undefined ? {} : { p_user_id: userId }),
       p_endpoint: endpoint,
       p_burst_limit: limits.burstLimit,
       p_burst_window_seconds: limits.burstWindowSeconds,
@@ -46,7 +61,7 @@ export async function enforceRateLimit(res, userId, endpoint) {
     error = quotaError;
   }
 
-  if (error || !data?.[0]) {
+  if (error || !isQuotaResult(data?.[0])) {
     console.error("API quota check failed", error);
     res.status(503).json({
       success: false,
@@ -56,8 +71,9 @@ export async function enforceRateLimit(res, userId, endpoint) {
   }
 
   const result = data[0];
-  res.setHeader("X-RateLimit-Burst-Remaining", String(result.burst_remaining));
-  res.setHeader("X-RateLimit-Daily-Remaining", String(result.daily_remaining));
+  const headerPrefix = userId === undefined ? "X-RateLimit-Global" : "X-RateLimit";
+  res.setHeader(`${headerPrefix}-Burst-Remaining`, String(result.burst_remaining));
+  res.setHeader(`${headerPrefix}-Daily-Remaining`, String(result.daily_remaining));
 
   if (!result.allowed) {
     res.setHeader("Retry-After", String(result.retry_after));
@@ -73,3 +89,19 @@ export async function enforceRateLimit(res, userId, endpoint) {
 
   return true;
 }
+
+export function createRateLimitEnforcer(database, env = process.env) {
+  return async (res, userId, endpoint) => {
+    const limits = limitsFor(endpoint, env);
+    // Reject an exhausted account before touching the shared capacity. Otherwise
+    // denied requests could drain the deployment budget without doing paid work.
+    if (!(await consumeQuota(database, res, endpoint, limits, userId))) return false;
+    if (Object.hasOwn(GLOBAL_LIMITS, endpoint)) {
+      const globalLimits = limitsFor(endpoint, env, true);
+      if (!(await consumeQuota(database, res, endpoint, globalLimits))) return false;
+    }
+    return true;
+  };
+}
+
+export const enforceRateLimit = createRateLimitEnforcer(supabaseAdmin);

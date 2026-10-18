@@ -13,9 +13,9 @@ The tracker records user-confirmed YA2025 personal relief claims, offers a narro
 
 ## Claims and evidence
 
-All existing LHDN receipts are imported as needs-review claims with zero eligible amount. New tax scans create drafts through a database trigger, compatible with the existing OCR endpoint.
+All existing LHDN receipts were imported as needs-review claims with zero eligible amount. After the receipt-integrity migration, all new tax scans create spending drafts as well as needs-review claims. Reviewing tax eligibility does not post the associated expense; the user confirms spending from Scan. Previously posted history is preserved.
 
-Users can select eligible receipt items after scanning or choosing a photo, adjust the requested amount, or enter a manual claim with a statement reference. The first milestone links one receipt to one claim; mixed receipts across multiple relief rules and direct PDF uploads are not yet supported. The Tax Relief screen shows only YA2025 and YA2026 and no longer offers a saved-receipt picker.
+Users can select eligible receipt items after scanning or choosing a photo, reuse a saved receipt from the selected year, adjust the requested amount, or enter a manual claim with a statement reference. Reusing evidence attaches the existing receipt idempotently and does not create or post another expense. Identical image uploads reuse the receipt; similar purchases prompt a review. One receipt links to one claim; mixed receipts across multiple relief rules and direct PDF uploads are not supported. The Tax Relief screen shows only YA2025 and YA2026.
 
 Only confirmed claims with matching rule versions contribute to the estimate. Sub-limits apply before shared caps. Shared-cap allocation follows rule order and is explained in the breakdown. Amounts are accumulated in sen.
 
@@ -63,7 +63,7 @@ On iOS and Android, the user can explicitly export a UTF-8 plain-text filing not
 
 ## Verification
 
-- `npm test`, `npm run typecheck`, `npm run lint`.
+- `npm test`, `npm run test:database`, `npm run typecheck`, `npm run lint`.
 - `tests/tax-estimate.test.ts` covers bracket boundaries, the donation cap, rebates, PCB and estimate gating.
 - `tests/tax-database.sql` runs receipt/claim integration and two-account isolation checks in a transaction and rolls it back. It requires two existing accounts and an administrative SQL connection.
 - `tests/tax-filing-database.sql` checks filing-profile and household RLS plus immutable assessment year, also rolling back.
@@ -74,4 +74,4 @@ On iOS and Android, the user can explicitly export a UTF-8 plain-text filing not
 
 ## Deployment
 
-Apply the checked-in migrations before using the app screens. All four tax migrations were applied to the connected SafeSpend Supabase project during earlier milestones. Milestone 5 is client-only and adds no database objects or backend deployment.
+Apply pending migrations before using these app screens. The audit remediation adds `20261016161330_receipt_integrity.sql` and `20261016161905_global_ai_quota.sql`; both and the matching backend were deployed on 17 October 2026. See the [deployment record](deployment-2026-10-17.md) and [rollout notes](audit-remediation.md).

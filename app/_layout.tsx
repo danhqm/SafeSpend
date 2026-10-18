@@ -4,13 +4,23 @@ import {
   Poppins_700Bold,
   useFonts,
 } from "@expo-google-fonts/poppins";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-url-polyfill/auto";
 import { BiometricGate } from "../components/biometric-gate";
 import { BrandSplash } from "../components/brand-splash";
+import { ScreenBackButton } from "../components/screen-back-button";
+import { goBackOrReplace } from "../utils/back-navigation";
+import { screenColors } from "../utils/screen-theme";
+
+const backRoutes: Record<string, '/accounts' | '/(tabs)/edufinance' | '/(tabs)'> = {
+  'add-account': '/accounts',
+  transfer: '/accounts',
+  'learning-path-details': '/(tabs)/edufinance',
+};
 
 export default function RootLayout() {
+  const router = useRouter();
   const [fontsLoaded] = useFonts({
     Poppins_400Regular,
     Poppins_700Bold,
@@ -22,7 +32,16 @@ export default function RootLayout() {
 
   return (
     <BiometricGate>
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack screenOptions={({ route }) => ({
+        headerShown: false,
+        headerStyle: { backgroundColor: screenColors.teal },
+        headerTintColor: screenColors.surface,
+        headerTitleStyle: { fontFamily: 'Poppins_700Bold', fontSize: 18 },
+        headerTitleAlign: 'left',
+        headerShadowVisible: false,
+        headerBackVisible: false,
+        headerLeft: () => <ScreenBackButton onPress={() => goBackOrReplace(router, backRoutes[route.name] ?? '/(tabs)')} />,
+      })}>
         <Stack.Screen name="splashscreen" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="landing" />
@@ -38,7 +57,6 @@ export default function RootLayout() {
           options={{
             headerShown: true,
             title: "Stored Receipt",
-            headerBackTitle: "Transactions",
           }}
         />
         <Stack.Screen
@@ -46,7 +64,6 @@ export default function RootLayout() {
           options={{
             headerShown: true,
             title: "Transaction Details",
-            headerBackTitle: "Transactions",
           }}
         />
         <Stack.Screen
@@ -54,12 +71,11 @@ export default function RootLayout() {
           options={{
             headerShown: true,
             title: "Monthly Budget",
-            headerBackTitle: "Home",
           }}
         />
         <Stack.Screen
           name="accounts"
-          options={{ headerShown: true, title: "Accounts", headerBackTitle: "Home" }}
+          options={{ headerShown: true, title: "Accounts" }}
         />
         <Stack.Screen
           name="add-account"
@@ -82,7 +98,6 @@ export default function RootLayout() {
           options={{
             headerShown: true,
             title: "Money Skills",
-            headerBackTitle: "Learn",
           }}
         />
         <Stack.Screen name="tax-filing" />

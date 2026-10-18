@@ -1,0 +1,44 @@
+name: SafeSpend checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "1"
+      EXPO_OFFLINE: "1"
+      # Build fixtures only. No hosted project or paid provider is contacted.
+      EXPO_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: test-only-placeholder
+      EXPO_PUBLIC_API_URL: https://example.test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            chatbot-backend/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix chatbot-backend
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:database
+      - run: npm run check --prefix chatbot-backend
+      - run: npm test --prefix chatbot-backend
+      - run: npx expo export --platform web --output-dir dist
+      - run: npm run typecheck

@@ -1,6 +1,7 @@
 import { formatCategory, type StoredReceipt } from "@/types/finance";
 import { addSignedReceiptImage } from "@/utils/receipt-images";
 import { supabase } from "@/utils/supabase";
+import { screenColors as colors } from "@/utils/screen-theme";
 import { Image } from "expo-image";
 import { Stack, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
@@ -13,8 +14,6 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-
-const PRIMARY = "#00D09E";
 
 export default function StoredReceiptScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
@@ -79,14 +78,14 @@ export default function StoredReceiptScreen() {
       >
         {loading ? (
           <View style={[styles.centerState, { minHeight: height * 0.65 }]}>
-            <ActivityIndicator size="large" color={PRIMARY} />
+            <ActivityIndicator size="large" color={colors.teal} />
             <Text style={styles.stateText}>Opening your private receipt…</Text>
           </View>
         ) : error ? (
           <View style={[styles.centerState, { minHeight: height * 0.65 }]}>
             <Text selectable style={styles.errorTitle}>Receipt unavailable</Text>
             <Text selectable style={styles.errorText}>{error}</Text>
-            <TouchableOpacity style={styles.retryButton} onPress={loadReceipt}>
+            <TouchableOpacity accessibilityRole="button" style={styles.retryButton} onPress={loadReceipt}>
               <Text style={styles.retryText}>Try again</Text>
             </TouchableOpacity>
           </View>
@@ -157,32 +156,32 @@ export default function StoredReceiptScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F4F8F6" },
-  content: { padding: 18, paddingBottom: 44, gap: 12 },
+  container: { flex: 1, backgroundColor: colors.canvas },
+  content: { padding: 20, paddingTop: 28, paddingBottom: 44, gap: 14, width: '100%', maxWidth: 780, alignSelf: 'center' },
   centerState: {
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 30,
     gap: 12,
   },
-  stateText: { color: "#617470", fontSize: 13 },
-  errorTitle: { color: "#093030", fontSize: 18, fontWeight: "800" },
-  errorText: { color: "#617470", fontSize: 13, lineHeight: 20, textAlign: "center" },
+  stateText: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 13 },
+  errorTitle: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 18 },
+  errorText: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 13, lineHeight: 20, textAlign: "center" },
   retryButton: {
     minHeight: 46,
     minWidth: 130,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 13,
-    backgroundColor: PRIMARY,
+    backgroundColor: colors.teal,
   },
-  retryText: { color: "#052224", fontWeight: "800" },
+  retryText: { color: colors.mint, fontFamily: 'Poppins_700Bold' },
   imageCard: {
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 18,
-    backgroundColor: "#17211F",
+    backgroundColor: colors.teal,
   },
   receiptImage: { width: "100%", height: "100%" },
   missingImageText: {
@@ -191,15 +190,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
-  privateNote: { color: "#617470", fontSize: 11, textAlign: "center" },
+  privateNote: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 11, textAlign: "center" },
   detailsCard: {
     padding: 18,
     gap: 10,
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
-    boxShadow: "0 1px 3px rgba(5, 34, 36, 0.08)",
+    borderRadius: 24,
+    backgroundColor: colors.surface,
   },
-  merchant: { color: "#093030", fontSize: 18, fontWeight: "800", paddingBottom: 5 },
+  merchant: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 18, paddingBottom: 5 },
   detailRow: { flexDirection: "row", justifyContent: "space-between", gap: 16 },
   detailLabel: { color: "#617470", fontSize: 13 },
   detailValue: { color: "#093030", fontSize: 13, fontWeight: "600", textAlign: "right" },

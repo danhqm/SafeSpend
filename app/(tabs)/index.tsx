@@ -38,8 +38,10 @@ import {
 import { homeCache } from "../../utils/home-cache";
 import { getSavedUserId } from "../../utils/offline-session";
 import { setupSmartNotifications } from "../../utils/notifications";
-import { authenticatedApiFetch } from "../../utils/api";
+import { authenticatedApiFetch, isAiConsentRequired } from "../../utils/api";
+import { getAiConsent } from "../../utils/ai-consent";
 import { supabase } from "../../utils/supabase";
+import { fetchAllPages } from "../../utils/pagination-core";
 
 const PRIMARY = "#00D09E";
 const INSIGHT_ACCENTS = ["#00A884", "#2775E8", "#F5A524"];
@@ -171,6 +173,7 @@ export default function HomeScreen() {
     }
     : getSmartStatus(totalExpense, monthlyBudget);
   const [aiInsights, setAiInsights] = useState<string[] | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
   const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
   const [analysisTransactionCount, setAnalysisTransactionCount] = useState<number | null>(null);
@@ -243,7 +246,11 @@ export default function HomeScreen() {
     } catch (err) {
       console.log("Fin analysis fetch error:", err);
       if (requestId === analysisRequestRef.current) {
-        setAiInsightsError("Fin could not refresh. Saved analysis remains available offline.");
+        if (isAiConsentRequired(err)) {
+          setAiEnabled(false);
+          setAiInsights(null);
+          setAiInsightsError(null);
+        } else setAiInsightsError("Fin could not refresh. Saved analysis remains available offline.");
       }
     } finally {
       if (requestId === analysisRequestRef.current) setAiInsightsLoading(false);
@@ -256,8 +263,6 @@ export default function HomeScreen() {
     if (existing) return existing;
     const cacheGeneration = homeCache.generation(userId);
     const promise = (async (): Promise<MonthSummary> => {
-      const pageSize = 500;
-      const rows: MonthlySpendingRow[] = [];
       const budgetResult = Promise.resolve(supabase
         .from("budgets")
         .select("amount")
@@ -271,22 +276,14 @@ export default function HomeScreen() {
       const endExclusive = month === monthStartString()
         ? localDateString(tomorrow)
         : monthEnd;
-      for (let offset = 0; ; offset += pageSize) {
-        const { data, error } = await supabase
+      const rows: MonthlySpendingRow[] = await fetchAllPages(() => supabase
           .from("transactions")
-          .select("id, amount, category, transaction_type")
+          .select("id, amount, category, transaction_type", { count: "exact" })
           .eq("user_id", userId)
           .eq("status", "posted")
           .in("transaction_type", ["expense", "refund", "income"])
           .gte("occurred_on", month)
-          .lt("occurred_on", endExclusive)
-          .order("id", { ascending: true })
-          .range(offset, offset + pageSize - 1);
-
-        if (error) throw error;
-        rows.push(...((data ?? []) as MonthlySpendingRow[]));
-        if (!data || data.length < pageSize) break;
-      }
+          .lt("occurred_on", endExclusive));
 
       const { data: budget, error: budgetError } = await budgetResult;
       if (budgetError) console.log("Home: chart budget error", budgetError);
@@ -371,11 +368,14 @@ export default function HomeScreen() {
       const { userId, offline } = await getSavedUserId();
       if (!userId) return;
       activeUserIdRef.current = userId;
-      const [savedHome, cachedFin] = await Promise.all([
-        homeCache.getHome(userId), homeCache.getFin(userId),
+      const [savedHome, savedFin, allowed] = await Promise.all([
+        homeCache.getHome(userId), homeCache.getFin(userId), getAiConsent(userId),
       ]);
+      const cachedFin = allowed ? savedFin : null;
       cachedHome = savedHome;
       if (requestId !== homeRequestRef.current) return;
+      setAiEnabled(allowed);
+      if (!allowed) setAiInsightsError(null);
       if (cachedHome) {
         setHomeSavedAt(cachedHome.savedAt);
         setHomeMonth(cachedHome.month);
@@ -410,7 +410,7 @@ export default function HomeScreen() {
         return;
       }
       if (!force && cachedHome && isHomeFresh(cachedHome) &&
-        cachedFin && isFinFresh(cachedFin)) return;
+        (!allowed || (cachedFin && isFinFresh(cachedFin)))) return;
 
       const cacheGeneration = homeCache.generation(userId);
       const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -422,29 +422,29 @@ export default function HomeScreen() {
         console.log("Home: could not save offline account", error));
       setHomeCacheNotice(null);
 
-      const analysisPromise = force || !cachedFin || !isFinFresh(cachedFin)
+      const analysisPromise = allowed && (force || !cachedFin || !isFinFresh(cachedFin))
         ? fetchAIInsights(userId) : Promise.resolve();
       if (force || !cachedHome || !isHomeFresh(cachedHome)) {
         const todayStr = localDateString();
         const firstOfMonthStr = monthStartString();
-        const [profileResult, budgetResult, transactionResult, latestResult] = await Promise.all([
+        const [profileResult, budgetResult, transactions, latestResult] = await Promise.all([
           supabase.from("users").select("username, monthly_income, avatar_url")
             .eq("user_id", userId).single(),
           supabase.from("budgets").select("amount")
             .eq("user_id", userId).eq("month_start", firstOfMonthStr)
             .eq("category", "ALL").maybeSingle(),
-          supabase.from("transactions").select("amount, transaction_type")
+          fetchAllPages(() => supabase.from("transactions")
+            .select("id, amount, transaction_type", { count: "exact" })
             .eq("user_id", userId).eq("status", "posted")
             .in("transaction_type", ["expense", "refund"])
-            .gte("occurred_on", firstOfMonthStr).lte("occurred_on", todayStr),
+            .gte("occurred_on", firstOfMonthStr).lte("occurred_on", todayStr)),
           supabase.from("transactions")
             .select("id, merchant_name, amount, occurred_on, category, transaction_type, source")
             .eq("user_id", userId).eq("status", "posted")
             .order("created_at", { ascending: false })
             .order("id", { ascending: false }).limit(1),
         ]);
-        const error = profileResult.error || budgetResult.error ||
-          transactionResult.error || latestResult.error;
+        const error = profileResult.error || budgetResult.error || latestResult.error;
         if (error) throw error;
         const rawIncome = Number(profileResult.data?.monthly_income);
         const summary: HomeSummary = {
@@ -453,7 +453,7 @@ export default function HomeScreen() {
           username: profileResult.data?.username || "User",
           avatarUrl: profileResult.data?.avatar_url ?? null,
           monthlyBudget: Number(budgetResult.data?.amount) || 0,
-          totalExpense: Math.max(0, (transactionResult.data ?? []).reduce(
+          totalExpense: Math.max(0, transactions.reduce(
             (sum, row) => sum + expenseEffect(row.transaction_type, row.amount), 0,
           )),
           profileMonthlyIncome: Number.isFinite(rawIncome) ? rawIncome : 0,
@@ -688,7 +688,13 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {aiInsightsLoading && (
+            {!aiEnabled && <View>
+              <Text style={styles.insightsMessage}>AI is off on this device. Review how your data is shared before enabling Fin and receipt scanning.</Text>
+              <TouchableOpacity accessibilityRole="button" onPress={()=>router.push("/privacy")} style={{minHeight:48,justifyContent:"center"}}>
+                <Text style={styles.insightsCoverage}>Review Privacy &amp; data →</Text>
+              </TouchableOpacity>
+            </View>}
+            {aiEnabled && aiInsightsLoading && (
               <Text style={styles.insightsMessage}>
                 Fin is reviewing your spending habits...
               </Text>
@@ -727,7 +733,7 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {!aiInsightsLoading && (aiInsightsError || !aiInsights) && (
+            {aiEnabled && !aiInsightsLoading && (aiInsightsError || !aiInsights) && (
               <Text selectable style={styles.insightsMessage}>
                 {aiInsightsError ?? "Fin's analysis will appear once your records load."}
               </Text>

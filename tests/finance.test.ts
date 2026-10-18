@@ -57,7 +57,7 @@ test("monthly spending nets refunds and uses recorded income first", () => {
   assert.equal((summary.categories[0].amount / summary.income) * 100, 20);
 });
 
-test("monthly spending falls back to profile income and excludes negative categories", () => {
+test("monthly spending nets refunds before clipping categories for the chart", () => {
   const summary = summarizeMonthlySpending(
     [
       { transaction_type: "expense", amount: 80, category: "TRANSPORT" },
@@ -68,8 +68,20 @@ test("monthly spending falls back to profile income and excludes negative catego
   );
   assert.equal(summary.incomeSource, "profile");
   assert.equal(summary.income, 600);
-  assert.equal(summary.total, 120);
+  assert.equal(summary.total, 100);
   assert.deepEqual(summary.categories, [{ category: "OTHER", amount: 120 }]);
+});
+
+test("monthly spending floors the final net when refunds exceed all expenses", () => {
+  const summary = summarizeMonthlySpending(
+    [
+      { transaction_type: "expense", amount: 20, category: "OTHER" },
+      { transaction_type: "refund", amount: 100, category: "TRANSPORT" },
+    ],
+    0,
+  );
+  assert.equal(summary.total, 0);
+  assert.deepEqual(summary.categories, [{ category: "OTHER", amount: 20 }]);
 });
 
 test("monthly spending can show category share when income is unavailable", () => {

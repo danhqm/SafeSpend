@@ -1,0 +1,10 @@
+# This Vercel project hosts only the backend (Root Directory: chatbot-backend).
+*
+!chatbot-backend
+!chatbot-backend/api
+!chatbot-backend/api/**
+!chatbot-backend/lib
+!chatbot-backend/lib/**
+!chatbot-backend/package.json
+!chatbot-backend/package-lock.json
+!chatbot-backend/vercel.json

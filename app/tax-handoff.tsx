@@ -13,6 +13,7 @@ import { TaxBusinessEntry, summarizeBusinessRecords } from '../types/tax-busines
 import { TaxFilingProfile, suggestedFilingForm } from '../types/tax-filing';
 import { filingDeadline, filingDateState, FILING_PROGRAMME_2026, HASIL_MYTAX, HASIL_RECORDS, handoffSummary, HandoffData } from '../types/tax-handoff';
 import { removeTaxCheckIn, scheduleTaxCheckIn, taxCheckIn } from '../utils/tax-reminders';
+import { fetchAllPages } from '../utils/pagination-core';
 
 type Year = 2025 | 2026;
 type Reminder = Awaited<ReturnType<typeof taxCheckIn>>;
@@ -59,22 +60,12 @@ export default function TaxHandoffScreen() {
       ]);
       if (profileResult.error) throw profileResult.error;
       if (annualResult.error) throw annualResult.error;
-      const claims: TaxClaim[] = [];
-      const business: TaxBusinessEntry[] = [];
-      for (let offset = 0; ; offset += 500) {
-        const result = await supabase.from('tax_claims').select('*').eq('user_id', id).eq('tax_year', year)
-          .order('created_at').order('id').range(offset, offset + 499);
-        if (result.error) throw result.error;
-        claims.push(...((result.data ?? []) as TaxClaim[]));
-        if ((result.data?.length ?? 0) < 500) break;
-      }
-      for (let offset = 0; ; offset += 500) {
-        const result = await supabase.from('tax_business_entries').select('*').eq('user_id', id).eq('tax_year', year)
-          .order('occurred_on').order('id').range(offset, offset + 499);
-        if (result.error) throw result.error;
-        business.push(...((result.data ?? []) as TaxBusinessEntry[]));
-        if ((result.data?.length ?? 0) < 500) break;
-      }
+      const [claims, business] = await Promise.all([
+        fetchAllPages<TaxClaim>(() => supabase.from('tax_claims').select('*', {count:'exact'})
+          .eq('user_id', id).eq('tax_year', year).order('created_at', {ascending:true})),
+        fetchAllPages<TaxBusinessEntry>(() => supabase.from('tax_business_entries').select('*', {count:'exact'})
+          .eq('user_id', id).eq('tax_year', year).order('occurred_on', {ascending:true})),
+      ]);
       let savedReminder: Reminder = null;
       if (Platform.OS !== 'web') {
         try { savedReminder = await taxCheckIn(id, year); }

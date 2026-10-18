@@ -8,6 +8,7 @@ import { money, parseAmount, validDate } from '../types/tax';
 import type { TaxFilingProfile } from '../types/tax-filing';
 import { summarizeBusinessRecords } from '../types/tax-business';
 import type { TaxBusinessEntry } from '../types/tax-business';
+import { fetchAllPages } from '../utils/pagination-core';
 
 const HASIL_FORMS = 'https://www.hasil.gov.my/individu/pengenalan-cukai-pendapatan-individu/';
 const HASIL_RECORDS = 'https://www.hasil.gov.my/individu/soalan-lazim-individu/';
@@ -42,15 +43,8 @@ export default function TaxBusinessScreen() {
       const profileResult = await supabase.from('tax_filing_profiles').select('*')
         .eq('user_id', auth.user.id).eq('tax_year', year).maybeSingle();
       if (profileResult.error) throw profileResult.error;
-      const all: TaxBusinessEntry[] = [];
-      for (let offset = 0; ; offset += 500) {
-        const result = await supabase.from('tax_business_entries').select('*')
-          .eq('user_id', auth.user.id).eq('tax_year', year)
-          .order('occurred_on', { ascending: false }).order('id').range(offset, offset + 499);
-        if (result.error) throw result.error;
-        all.push(...((result.data ?? []) as TaxBusinessEntry[]));
-        if (!result.data || result.data.length < 500) break;
-      }
+      const all = await fetchAllPages<TaxBusinessEntry>(() => supabase.from('tax_business_entries').select('*', {count:'exact'})
+        .eq('user_id', auth.user!.id).eq('tax_year', year).order('occurred_on', {ascending:false}));
       if (!active()) return;
       setUserId(auth.user.id);
       setProfile(profileResult.data as TaxFilingProfile | null);

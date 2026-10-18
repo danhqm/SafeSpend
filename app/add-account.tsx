@@ -5,6 +5,7 @@ import {
 } from "@/types/finance";
 import { supabase } from "@/utils/supabase";
 import { homeCache } from "@/utils/home-cache";
+import { screenColors as colors } from "@/utils/screen-theme";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
 import React, { useCallback, useState } from "react";
@@ -135,15 +136,17 @@ export default function AddAccountScreen() {
         >
           {loading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color={PRIMARY} />
+              <ActivityIndicator size="large" color={colors.teal} />
             </View>
           ) : (
-            <>
+            <View style={styles.formSheet}>
               <Text style={styles.label}>Account name</Text>
               <TextInput
                 value={name}
                 onChangeText={setName}
                 placeholder="Maybank, Cash wallet…"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Account name"
                 autoCapitalize="words"
                 maxLength={80}
                 style={styles.input}
@@ -154,6 +157,7 @@ export default function AddAccountScreen() {
                 {ACCOUNT_TYPES.map((type) => (
                   <TouchableOpacity
                     key={type}
+                    accessibilityRole="button"
                     style={[
                       styles.typeChip,
                       accountType === type && styles.typeChipActive,
@@ -183,6 +187,8 @@ export default function AddAccountScreen() {
                 onChangeText={setOpeningBalance}
                 keyboardType="numbers-and-punctuation"
                 placeholder="0.00"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel={accountType === 'credit_card' ? 'Opening amount owed in ringgit' : 'Opening balance in ringgit'}
                 style={styles.input}
               />
               <View style={styles.helperCard}>
@@ -199,18 +205,19 @@ export default function AddAccountScreen() {
 
               <TouchableOpacity
                 style={[styles.saveButton, saving && styles.disabled]}
+                accessibilityRole="button"
                 onPress={saveAccount}
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator color="#052224" />
+                  <ActivityIndicator color={colors.mint} />
                 ) : (
                   <Text style={styles.saveText}>
                     {accountId ? "Save account" : "Add account"}
                   </Text>
                 )}
               </TouchableOpacity>
-            </>
+            </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -219,19 +226,20 @@ export default function AddAccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F4F8F6" },
-  content: { padding: 20, paddingBottom: 48 },
+  container: { flex: 1, backgroundColor: colors.canvas },
+  content: { padding: 20, paddingTop: 28, paddingBottom: 48, width: '100%', maxWidth: 780, alignSelf: 'center' },
+  formSheet: { padding: 20, paddingTop: 4, borderRadius: 24, backgroundColor: colors.surface },
   loadingState: { minHeight: 420, alignItems: "center", justifyContent: "center" },
-  label: { color: "#31504D", fontSize: 13, fontWeight: "700", marginTop: 18, marginBottom: 8 },
+  label: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 13, marginTop: 20, marginBottom: 8 },
   input: { minHeight: 52, paddingHorizontal: 14, borderWidth: 1, borderColor: "#C9DAD4", borderRadius: 13, backgroundColor: "#FFFFFF", color: "#093030", fontSize: 15 },
   typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  typeChip: { minWidth: "47%", flexGrow: 1, alignItems: "center", paddingVertical: 12, borderRadius: 13, backgroundColor: "#E7EFEC" },
+  typeChip: { minWidth: "47%", minHeight: 48, flexGrow: 1, alignItems: "center", justifyContent: 'center', paddingVertical: 12, borderRadius: 13, backgroundColor: "#E7EFEC" },
   typeChipActive: { backgroundColor: PRIMARY },
   typeText: { color: "#31504D", fontSize: 13, fontWeight: "700" },
   typeTextActive: { color: "#052224" },
-  helperCard: { padding: 13, marginTop: 10, borderRadius: 13, backgroundColor: "#E9F5F1" },
-  helperText: { color: "#526965", fontSize: 11, lineHeight: 18 },
-  saveButton: { minHeight: 52, marginTop: 28, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: PRIMARY },
-  saveText: { color: "#052224", fontSize: 15, fontWeight: "800" },
+  helperCard: { padding: 14, marginTop: 14, borderRadius: 13, backgroundColor: colors.field },
+  helperText: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 12, lineHeight: 20 },
+  saveButton: { minHeight: 52, marginTop: 28, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.teal },
+  saveText: { color: colors.mint, fontFamily: 'Poppins_700Bold', fontSize: 15 },
   disabled: { opacity: 0.55 },
 });

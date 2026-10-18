@@ -13,8 +13,8 @@ export const FEATURE_GUIDES: Record<FeatureGuideKey, FeatureContent> = {
     name: "Learn", introduction: "Find a short lesson, try a weekly money mission and choose a goal that matters to you.",
     footnote: "Your learning progress updates through the lessons and activities.",
     steps: [
-      { title: "Start with a foundation path", icon: "book-outline", body: "Foundation paths combine short lessons, decisions and quizzes. Start with an unfinished path or revisit something you want to understand better.", location: "Find Foundation paths below the weekly mission.", action: "Explore foundation paths" },
-      { title: "Put one idea into practice", icon: "flag-outline", body: "Your weekly money mission turns a money skill into a practical action. Open its steps and sources, try the activity, then mark it complete when you’ve done it.", location: "Find Weekly money mission near the top of Learn.", action: "Find this week’s mission" },
+      { title: "Start with a foundation path", icon: "book-outline", body: "Follow Your next step or choose a foundation path. Learn an idea, decide through a scenario and apply it with a saved plan. You can revisit any path.", location: "Find Foundation paths below Your next step.", action: "Explore foundation paths" },
+      { title: "Put one idea into practice", icon: "flag-outline", body: "Your weekly mission supports your learning needs. Read its steps and sources, try the activity, then record that you completed it. This is self-reported, not verified financial activity.", location: "Find Weekly money mission below Foundation paths.", action: "Find this week’s mission" },
       { title: "Choose a small money goal", icon: "checkmark-circle-outline", body: "Use Personal money goals to write down a step you want to take this week. Add a short title and optional notes, then check it off when you finish.", location: "Find Personal money goals near the bottom of Learn. Tap Add to create one.", action: "Find personal goals" },
     ],
   },

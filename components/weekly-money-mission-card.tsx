@@ -96,6 +96,7 @@ export function WeeklyMoneyMissionCard({
       <Text selectable style={styles.summary}>
         {mission.summary}
       </Text>
+      <Text style={styles.summary}>{({quiz_review:'Chosen to practise a topic from a recent knowledge check.',chosen_focus:'Chosen for your learning focus.',next_path:'Chosen to support your next foundation skill.',rotation:'Chosen from missions you have not tried recently.',existing:'Your previously assigned mission is preserved.'})[assignment.selection_reason||'existing']}</Text>
 
       <View style={styles.steps}>
         {mission.steps.map((step, index) => (
@@ -157,7 +158,7 @@ export function WeeklyMoneyMissionCard({
                 color="#052224"
               />
               <Text style={styles.completeButtonText}>
-                {completed ? "Mark unfinished" : "Mission complete"}
+                {completed ? "Mark unfinished" : "I completed this activity"}
               </Text>
             </>
           )}
@@ -165,7 +166,7 @@ export function WeeklyMoneyMissionCard({
       </View>
 
       <Text selectable style={styles.rotationNote}>
-        A new curated mission appears every Monday. This one stays in your history.
+        Completion is self-reported; SafeSpend does not verify transfers or repayments. A new mission arrives Monday.
       </Text>
     </View>
   );

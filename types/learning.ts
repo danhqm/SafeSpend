@@ -20,14 +20,11 @@ export type QuizQuestion = {
   id: string;
   prompt: string;
   options: QuizOption[];
-  correctOptionId: string;
-  explanation: string;
 };
 
 export type QuizPayload = {
   version: number;
-  passPercent: number;
-  questions: QuizQuestion[];
+  requiredCorrect: 2;
 };
 
 export type ActionPayload = {
@@ -84,10 +81,23 @@ export type LearningPath = {
 };
 
 export type QuizResult = {
+  attemptId: string;
   score: number;
-  total_questions: number;
+  totalQuestions: number;
   passed: boolean;
+  feedback: QuizFeedback[];
 };
+
+export type QuizFeedback = { questionId: string; correctOptionId: string; explanation: string; lessonModuleId: string; slideIndex: number };
+export type QuizAttempt = { attemptId: string; moduleId: string; version: number; setIndex: number; repeated: boolean; requiredCorrect: 2; questions: QuizQuestion[]; feedback: QuizResult | null; answers: Record<string,string> | null };
+export type LearningFocus = 'spending' | 'saving' | 'debt';
+export type CompletionBasis = 'legacy' | 'lesson_viewed' | 'quiz_passed' | 'plan_saved';
+export type LearningProgress = { module_id: string; completion_basis: CompletionBasis };
+export type LatestQuizAttempt = { module_id: string; passed: boolean; completed_at: string };
+export type PracticeKind = 'budget' | 'saving' | 'debt';
+export type PracticeDraft = { budgetId?: string; targetAmount?: string; contributionAmount?: string; frequency?: 'weekly' | 'monthly'; firstStep?: string; priority?: string; strategy?: 'highest_cost' | 'smallest_balance' | 'avoid_new_debt'; reason?: string; hypothetical?: boolean };
+export type LearningPractice = { moduleId: string; kind: PracticeKind; period: string; draft: PracticeDraft; status: 'draft' | 'saved'; goalId: string | null; budgetId: string | null; confirmedDraft?: PracticeDraft|null; confirmedAt?: string|null };
+export type MissionSelectionReason = 'existing' | 'quiz_review' | 'chosen_focus' | 'next_path' | 'rotation';
 
 export type MoneyMissionCategory =
   | "spending"
@@ -118,6 +128,7 @@ export type WeeklyMoneyMission = {
   week_start: string;
   completed_at: string | null;
   created_at: string;
+  selection_reason?: MissionSelectionReason;
   money_mission_templates:
     | MoneyMissionTemplate
     | MoneyMissionTemplate[]
@@ -142,21 +153,15 @@ export function isLessonPayload(value: unknown): value is LessonPayload {
 export function isQuizPayload(value: unknown): value is QuizPayload {
   if (!value || typeof value !== "object") return false;
   const payload = value as Partial<QuizPayload>;
-  return (
-    typeof payload.passPercent === "number" &&
-    Array.isArray(payload.questions) &&
-    payload.questions.length > 0 &&
-    payload.questions.every(
-      (question) =>
-        Boolean(question) &&
-        typeof question.id === "string" &&
-        typeof question.prompt === "string" &&
-        typeof question.correctOptionId === "string" &&
-        typeof question.explanation === "string" &&
-        Array.isArray(question.options) &&
-        question.options.length >= 2,
-    )
-  );
+  return Number.isInteger(payload.version) && Number(payload.version)>0 && payload.requiredCorrect===2;
+}
+
+export function isQuizAttempt(value: unknown): value is QuizAttempt {
+  if(!value || typeof value!=='object') return false;
+  const p=value as QuizAttempt;
+  return typeof p.attemptId==='string' && typeof p.moduleId==='string' && Number.isInteger(p.version) && p.version>0 && p.requiredCorrect===2 &&
+    Array.isArray(p.questions) && p.questions.length===3 &&
+    p.questions.every(q=>q&&typeof q.id==='string' && typeof q.prompt==='string' && !('correctOptionId' in q) && !('explanation' in q) && Array.isArray(q.options) && q.options.length>=2 && q.options.every(o=>o&&typeof o.id==='string' && typeof o.label==='string') && new Set(q.options.map(o=>o.id)).size===q.options.length) && new Set(p.questions.map(q=>q.id)).size===3;
 }
 
 export function isActionPayload(value: unknown): value is ActionPayload {

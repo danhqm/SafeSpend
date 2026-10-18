@@ -1,76 +1,30 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {validatePracticeDraft} from '../utils/learning-action.ts';
+import {isQuizAttempt,isQuizPayload} from '../types/learning.ts';
 
-import {
-  getLocalMonday,
-  isQuizPayload,
-  localLearningDate,
-  missionFromAssignment,
-} from "../types/learning.ts";
-
-test("quiz payload guard requires complete scenario questions", () => {
-  assert.equal(
-    isQuizPayload({
-      version: 1,
-      passPercent: 67,
-      questions: [
-        {
-          id: "cash-flow",
-          prompt: "What remains?",
-          options: [
-            { id: "a", label: "RM100" },
-            { id: "b", label: "RM200" },
-          ],
-          correctOptionId: "b",
-          explanation: "Subtract commitments from take-home income.",
-        },
-      ],
-    }),
-    true,
-  );
-  assert.equal(
-    isQuizPayload({ version: 1, passPercent: 67, questions: [] }),
-    false,
-  );
+test('partial drafts can be saved but generic goals cannot qualify as a savings plan',()=>{
+  assert.equal(validatePracticeDraft('saving',{targetAmount:'1000'}),null);
+  assert.ok(validatePracticeDraft('saving',{targetAmount:'1000'},true));
+  assert.ok(validatePracticeDraft('saving',{title:'Groceries'} as never,true));
+  assert.equal(validatePracticeDraft('saving',{targetAmount:'1000',contributionAmount:'50',frequency:'weekly',firstStep:'Start after payday'},true),null);
 });
-
-test("weekly money missions use Monday as the local week boundary", () => {
-  assert.equal(
-    localLearningDate(getLocalMonday(new Date(2026, 8, 20, 18, 30))),
-    "2026-09-14",
-  );
-  assert.equal(
-    localLearningDate(getLocalMonday(new Date(2026, 8, 21, 0, 5))),
-    "2026-09-21",
-  );
+for(const amount of ['0','NaN','Infinity','-1','1.234','1e3','1000000000',' 10']) test(`practice rejects invalid amount ${amount}`,()=>{
+  assert.ok(validatePracticeDraft('saving',{targetAmount:amount,contributionAmount:'10',frequency:'monthly',firstStep:'Start'},true));
 });
-
-test("weekly mission relation is normalized from Supabase nested rows", () => {
-  const mission = {
-    id: "mission-1",
-    slug: "spending-snapshot",
-    title: "Spending snapshot",
-    summary: "See the week clearly.",
-    why_it_helps: "Visibility supports a realistic plan.",
-    steps: ["Record spending", "Review it"],
-    category: "spending" as const,
-    estimated_minutes: 10,
-    action_label: null,
-    action_trigger: null,
-    rotation_order: 1,
-    reviewed_at: "2026-09-15",
-  };
-
-  assert.equal(
-    missionFromAssignment({
-      id: "assignment-1",
-      user_id: "user-1",
-      mission_id: "mission-1",
-      week_start: "2026-09-14",
-      completed_at: null,
-      created_at: "2026-09-15T00:00:00Z",
-      money_mission_templates: [mission],
-    })?.slug,
-    "spending-snapshot",
-  );
+test('debt practice supports explicit hypotheticals and enforces a reason',()=>{
+  assert.ok(validatePracticeDraft('debt',{priority:'Card'},true));
+  assert.equal(validatePracticeDraft('debt',{priority:'Example card',strategy:'highest_cost',reason:'Compare actual costs',hypothetical:true},true),null);
+  assert.ok(validatePracticeDraft('debt',{reason:'x'.repeat(501)}));
+  assert.ok(validatePracticeDraft('budget',{},true));
+});
+test('public quiz metadata and attempts do not require or accept answer keys',()=>{
+  assert.equal(isQuizPayload({version:1,requiredCorrect:2}),true);
+  assert.equal(isQuizPayload({version:1,passPercent:67}),false);
+  const attempt={attemptId:'a',moduleId:'m',version:1,requiredCorrect:2,questions:[1,2,3].map(n=>({id:String(n),prompt:'Choose',options:[{id:'a',label:'A'},{id:'b',label:'B'}]}))};
+  assert.equal(isQuizAttempt(attempt),true);
+  assert.equal(isQuizAttempt({...attempt,questions:[]}),false);
+  assert.equal(isQuizAttempt({...attempt,questions:[null,...attempt.questions.slice(1)]}),false);
+  assert.equal(isQuizAttempt({...attempt,questions:attempt.questions.map(q=>({...q,options:[null]}))}),false);
+  assert.equal(isQuizAttempt({...attempt,questions:attempt.questions.map(q=>({...q,correctOptionId:'a'}))}),false);
 });

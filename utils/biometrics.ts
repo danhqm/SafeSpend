@@ -3,8 +3,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-const faceIdUserKey = "safespend.faceid.user";
-const faceIdOfferedKey = "safespend.faceid.offered";
+import { clearOwnedBiometricPreferences, FACE_ID_USER_KEY as faceIdUserKey, FACE_ID_OFFERED_KEY as faceIdOfferedKey } from "./biometrics-core";
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
 
 export async function canUseFaceId(): Promise<boolean> {
@@ -60,4 +59,12 @@ export async function unlockWithFaceId(): Promise<boolean> {
     disableDeviceFallback: true,
   });
   return result.success;
+}
+
+export async function clearBiometricsFor(userId: string): Promise<void> {
+  if (Platform.OS === "web") return;
+  await clearOwnedBiometricPreferences({
+    getItem: (key) => SecureStore.getItemAsync(key),
+    removeItem: (key) => SecureStore.deleteItemAsync(key),
+  }, userId);
 }

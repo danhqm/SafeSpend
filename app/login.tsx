@@ -1,7 +1,8 @@
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   Alert,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -10,7 +11,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { supabase } from "../utils/supabase";
-import { emailConfirmationRedirect } from "../utils/auth-redirect";
+import { emailConfirmationRedirect, passwordRecoveryRedirect } from "../utils/auth-redirect";
+import { requestPasswordRecovery } from "../utils/account-lifecycle-core";
 import {
   enableFaceIdFor,
   markFaceIdOfferedTo,
@@ -22,6 +24,8 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const recoveryOperation = useRef(false);
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -74,6 +78,21 @@ export default function Login() {
     }
   };
 
+  const handlePasswordRecovery = async () => {
+    if (recoveryOperation.current) return;
+    recoveryOperation.current = true;
+    setRecoveryBusy(true);
+    try {
+      await requestPasswordRecovery(supabase.auth, email, passwordRecoveryRedirect);
+      Alert.alert("Check your email", "If that address has an account, you will receive a password reset link. Open it in your browser, choose a new password, then return here to sign in.");
+    } catch (error) {
+      Alert.alert("Password reset not sent", error instanceof Error ? error.message : "Please try again.");
+    } finally {
+      recoveryOperation.current = false;
+      setRecoveryBusy(false);
+    }
+  };
+
   const handleResendVerification = async () => {
     if (!email.trim()) {
       Alert.alert("Error", "Please enter your email first");
@@ -102,6 +121,7 @@ export default function Login() {
       <Text style={styles.header}>Welcome</Text>
 
       <View style={styles.card}>
+        <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
         <Text style={styles.label}>Email</Text>
         <TextInput
           placeholder="Email"
@@ -128,6 +148,10 @@ export default function Login() {
           <Text style={styles.loginText}>Log In</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity accessibilityRole="button" onPress={() => void handlePasswordRecovery()} disabled={recoveryBusy}>
+          <Text style={styles.forgot}>{recoveryBusy ? "Sending reset link…" : "Forgot password?"}</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity onPress={handleResendVerification}>
           <Text style={styles.resendText}>Resend verification email</Text>
         </TouchableOpacity>
@@ -141,6 +165,7 @@ export default function Login() {
             Sign Up
           </Text>
         </Text>
+        </ScrollView>
       </View>
     </SafeAreaView>
   );
@@ -161,16 +186,16 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    marginTop: 80,
+    marginTop: 50,
     width: "100%",
-    height: 670,
+    flex: 1,
     backgroundColor: "#F1FFF3",
     borderTopLeftRadius: 60,
     borderTopRightRadius: 60,
     paddingHorizontal: 30,
     paddingTop: 40,
-    alignItems: "center",
   },
+  formContent: { alignItems: "center", paddingBottom: 40 },
 
   label: {
     alignSelf: "flex-start",

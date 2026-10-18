@@ -7,11 +7,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../utils/supabase";
 import { authenticatedApiFetch } from "../utils/api";
 import { addSignedReceiptImage } from "../utils/receipt-images";
-import { calculateClaims, money, parseAmount, TAX_RULES, TaxClaim, validDate } from "../types/tax";
+import { calculateClaims, money, parseAmount, TAX_RULES, TaxClaim } from "../types/tax";
 import { TaxFilingProfile, TaxHouseholdMember } from "../types/tax-filing";
 import { FeatureGuideHelp, FeatureGuideIntro, FeatureGuideStatus, FeatureGuideTour } from "../components/feature-guide";
 import { useFeatureGuide } from "../hooks/use-feature-guide";
 import { useGuideTargets } from "../hooks/use-guide-targets";
+import { fetchAllPages } from "../utils/pagination-core";
+import { checkClaimDate } from "../utils/tax-claim-date";
+import { getErrorMessage } from "../utils/error-message";
+import { scanReceiptImage } from "../utils/receipt-scan";
+import { prepareReceiptUpload } from "../utils/prepare-receipt-image";
 
 type Receipt = { id: string; merchant_name: string; total_amount: number; receipt_date: string; image_url: string | null; items: {name: string; price: number}[] | null };
 type Draft = TaxClaim & { amountText: string; eligibleText: string; dateText: string };
@@ -21,7 +26,7 @@ const emptyClaim = (year: number): Draft => ({
   evidence_note: "", eligibility_confirmed: false, occurred_on: null,
   amountText: "", eligibleText: "", dateText: "",
 });
-const errorMessage = (e: unknown) => e instanceof Error ? e.message : typeof e === "object" && e && "message" in e ? String(e.message) : "Please try again.";
+const errorMessage = getErrorMessage;
 
 export default function LHDNClaimScreen() {
   const router = useRouter();
@@ -42,6 +47,10 @@ export default function LHDNClaimScreen() {
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
   const [tab, setTab] = useState("Claims");
   const [rulePicker, setRulePicker] = useState(false);
+  const [receiptPicker, setReceiptPicker] = useState(false);
+  const [savedReceipts, setSavedReceipts] = useState<Receipt[]>([]);
+  const [receiptOffset, setReceiptOffset] = useState(0);
+  const [moreReceipts, setMoreReceipts] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -49,14 +58,8 @@ export default function LHDNClaimScreen() {
       const {data: auth, error: authError} = await supabase.auth.getUser();
       if (authError || !auth.user) throw new Error("Please sign in again.");
       setUserId(auth.user.id);
-      const all: TaxClaim[] = [];
-      for (let offset = 0; ; offset += 500) {
-        const {data, error: queryError} = await supabase.from("tax_claims").select("*")
-          .eq("user_id", auth.user.id).order("created_at", {ascending:false}).order("id").range(offset,offset+499);
-        if (queryError) throw queryError;
-        all.push(...(data || []));
-        if (!data || data.length < 500) break;
-      }
+      const all = await fetchAllPages<TaxClaim>(() => supabase.from("tax_claims").select("*", {count:"exact"})
+        .eq("user_id", auth.user!.id).order("created_at", {ascending:false}));
       setClaims(all);
       const [profilesResult, membersResult] = await Promise.all([
         supabase.from("tax_filing_profiles").select("*").eq("user_id", auth.user.id),
@@ -77,6 +80,8 @@ export default function LHDNClaimScreen() {
   const pending = visible.filter(c=>c.status !== "confirmed" && c.status !== "rejected").length;
   const rule = TAX_RULES.find(r=>r.id === draft?.rule_id);
   const years = [2025, 2026];
+  const showPaymentDate = rule?.mode !== "fixed" || !!draft?.receipt_id;
+  const dateCheck = draft && showPaymentDate ? checkClaimDate(draft.dateText, draft.tax_year) : null;
   const patch = (values: Partial<Draft>) => setDraft(d=>d ? {...d,...values,eligibility_confirmed:false} : null);
 
   const openClaim = async (claim: TaxClaim) => {
@@ -107,8 +112,9 @@ export default function LHDNClaimScreen() {
     if(!draft.title.trim() || amount===null || eligible===null || eligible>amount) {
       Alert.alert("Check the amounts","Enter a title and valid amounts with up to two decimal places. Eligible amount cannot exceed the recorded amount."); return;
     }
-    if (draft.dateText && !validDate(draft.dateText,draft.tax_year)) {
-      Alert.alert("Check the date","Use a real date in the selected assessment year, in YYYY-MM-DD format."); return;
+    const paymentDate = checkClaimDate(showPaymentDate ? draft.dateText : "", draft.tax_year);
+    if (paymentDate.message) {
+      Alert.alert(paymentDate.receiptYear ? "Assessment year does not match" : "Check the payment date", paymentDate.message); return;
     }
     if(status==="confirmed") {
       if (filingProfiles.find(profile => profile.tax_year === draft.tax_year)?.residency_status === "non_resident") {
@@ -116,7 +122,7 @@ export default function LHDNClaimScreen() {
       }
       if(!rule || draft.tax_year!==rule.year) { Alert.alert("Rules not reviewed","You can save this as a draft. Confirmed estimates are currently available for YA2025."); return; }
       if(!draft.eligibility_confirmed || !draft.beneficiary.trim()) { Alert.alert("Review eligibility","Check the eligibility statement and enter the beneficiary."); return; }
-      if(rule.mode!=="fixed" && (!draft.dateText || eligible<=0 || (!draft.receipt_id && !draft.evidence_note.trim()))) {
+      if(rule.mode!=="fixed" && (!paymentDate.date || eligible<=0 || (!draft.receipt_id && !draft.evidence_note.trim()))) {
         Alert.alert("Add supporting details","Enter the payment date, eligible amount and a reference to your supporting document."); return;
       }
     }
@@ -126,7 +132,7 @@ export default function LHDNClaimScreen() {
         rule_version:rule && draft.tax_year===rule.year ? rule.version:null,receipt_id:draft.receipt_id,
         title:draft.title.trim(),amount,eligible_amount:eligible,status,beneficiary:draft.beneficiary.trim(),
         evidence_note:draft.evidence_note.trim(),eligibility_confirmed:status==="confirmed",
-        occurred_on:draft.dateText || null,eligible_items:selectedItems};
+        occurred_on:paymentDate.date,eligible_items:selectedItems};
       const query = draft.id
         ? supabase.from("tax_claims").update(payload).eq("id",draft.id).eq("user_id",userId).eq("updated_at",draft.updated_at)
         : supabase.from("tax_claims").insert(payload);
@@ -136,6 +142,57 @@ export default function LHDNClaimScreen() {
     } catch(e) { Alert.alert("Could not save claim",errorMessage(e)); }
     finally { setBusy(false); }
   };
+  const attachSavedReceipt = async (receiptId: string) => {
+    setBusy(true);
+    try {
+      const {data,error:e} = await supabase.rpc("attach_receipt_tax_claim", {p_receipt_id:receiptId});
+      if(e || !data) throw e || new Error("Could not attach this receipt.");
+      setReceiptPicker(false);
+      await load();
+      setYear(data.tax_year);
+      await openClaim(data as TaxClaim);
+    } catch(e) { Alert.alert("Could not attach receipt",errorMessage(e)); }
+    finally {setBusy(false);}
+  };
+  const loadSavedReceipts = async (reset = true) => {
+    setBusy(true);
+    try {
+      const offset = reset ? 0 : receiptOffset;
+      const {data,error:e,count} = await supabase.from("receipts")
+        .select("id,merchant_name,total_amount,receipt_date,image_url,items",{count:"exact"})
+        .eq("user_id",userId).gte("receipt_date",`${year}-01-01`).lt("receipt_date",`${year+1}-01-01`)
+        .order("created_at",{ascending:false}).order("id").range(offset,offset+19);
+      if(e) throw e;
+      const next = data || [];
+      setSavedReceipts(current=>reset ? next : [...current,...next]);
+      setReceiptOffset(offset+next.length);
+      setMoreReceipts(count !== null && offset+next.length<count);
+      setReceiptPicker(true);
+    } catch(e) {Alert.alert("Could not load receipts",errorMessage(e));}
+    finally {setBusy(false);}
+  };
+  const processTaxImage = async (base64: string, allowDuplicate = false) => {
+    const result = await scanReceiptImage(authenticatedApiFetch, base64, {taxReview:true,allowDuplicate});
+    if(result.kind === "duplicate") {
+      Alert.alert("Possible duplicate", "A saved receipt has the same merchant, date and amount. Reuse its evidence to avoid recording the purchase twice.",[
+        {text:"Cancel",style:"cancel"},
+        {text:"Use saved receipt",onPress:()=>void attachSavedReceipt(result.receiptId)},
+        {text:"Different purchase",onPress:()=>{
+          setBusy(true);
+          void processTaxImage(base64,true).catch(e=>Alert.alert("Could not scan receipt",errorMessage(e))).finally(()=>setBusy(false));
+        }},
+      ]);
+      return;
+    }
+    await load();
+    const {data,error:e} = await supabase.from("tax_claims").select("*").eq("receipt_id",result.receipt.id).eq("user_id",userId).single();
+    if(e) throw e;
+    if (!years.includes(data.tax_year)) {
+      Alert.alert("Receipt outside selected years", `This receipt is from YA ${data.tax_year}. Tax Relief currently shows YA 2025 and YA 2026 only.`);
+      return;
+    }
+    setYear(data.tax_year); await openClaim(data);
+  };
   const scan = async (camera: boolean) => {
     setBusy(true);
     try {
@@ -143,22 +200,11 @@ export default function LHDNClaimScreen() {
         const permission = await ImagePicker.requestCameraPermissionsAsync();
         if(!permission.granted) throw new Error("Camera permission is needed to scan a receipt.");
       }
-      const options = {base64:true,quality:0.8,mediaTypes:["images"] as ImagePicker.MediaType[]};
+      const options = {quality:1,mediaTypes:["images"] as ImagePicker.MediaType[]};
       const result = camera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
       if(result.canceled) return;
-      const base64 = result.assets[0].base64;
-      if(!base64) throw new Error("Could not read this image.");
-      const response = await authenticatedApiFetch("/api/ocr", {method:"POST",body:JSON.stringify({imageBase64:base64,lhdnCategory:"Tax review"})});
-      const body = await response.json();
-      if(!response.ok || !body.success) throw new Error(body.error || "Receipt scan failed.");
-      await load();
-      const {data,error:e} = await supabase.from("tax_claims").select("*").eq("receipt_id",body.data.id).eq("user_id",userId).single();
-      if(e) throw e;
-      if (!years.includes(data.tax_year)) {
-        Alert.alert("Receipt outside selected years", `This receipt is from YA ${data.tax_year}. Tax Relief currently shows YA 2025 and YA 2026 only.`);
-        return;
-      }
-      setYear(data.tax_year); await openClaim(data);
+      const base64 = await prepareReceiptUpload(result.assets[0]);
+      await processTaxImage(base64);
     } catch(e) { Alert.alert("Could not scan receipt",errorMessage(e)); }
     finally { setBusy(false); }
   };
@@ -185,7 +231,7 @@ export default function LHDNClaimScreen() {
       </Pressable>
       <Text style={s.heading}>Tax Relief</Text>
       <View style={s.guideHelp}><FeatureGuideHelp name="Tax Relief" light
-        disabled={!guide.ready || loading || !!error || busy || !!draft || !!image} onPress={() => guide.open(true)} /></View>
+        disabled={!guide.ready || loading || !!error || busy || !!draft || !!image || receiptPicker} onPress={() => guide.open(true)} /></View>
     </View>
     <ScrollView ref={guideScroll} onScroll={guideTargets.measure} scrollEventThrottle={16}
       style={s.page} contentContainerStyle={[s.content, { paddingBottom: 48 + guideTargets.bottomSpace }]} keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic">
@@ -240,7 +286,8 @@ export default function LHDNClaimScreen() {
           </View>
         </View>
         {busy && <ActivityIndicator accessibilityLabel="Processing receipt"/>}
-        <Text style={s.sub}>Use Add claim for annual statements or personal reliefs. Keep the original supporting documents and record only qualifying items.</Text>
+        {button("Use a saved receipt",()=>void loadSavedReceipts(),true)}
+        <Text style={s.sub}>Reuse a saved receipt to avoid recording the same purchase twice. New scans wait for spending review in Scan. Tax confirmation is separate. Keep original supporting documents.</Text>
         <View ref={guideTargets.ref(2)} collapsable={false} onLayout={(event) => guideTargets.layout(2, event)} style={s.tabBar}>{["Claims","Breakdown"].map(t=><Pressable key={t} style={[s.tab,tab===t&&s.tabActive]} onPress={()=>setTab(t)} accessibilityRole="button" accessibilityState={{selected:tab===t}}><Text style={[s.tabText,tab===t&&s.tabTextActive]}>{t}</Text></Pressable>)}</View>
         {tab==="Breakdown" && isNonResident ? <Text style={s.notice}>The personal-relief breakdown is paused because your filing profile says non-resident. Your claims are still saved.</Text> : tab==="Claims" ? visible.length===0 ? <Text style={s.empty}>No claims for YA {year}. Add a claim or scan a receipt to get started.</Text> :
           visible.map(c=><Pressable key={c.id} style={s.card} onPress={()=>void openClaim(c)} disabled={busy} accessibilityRole="button">
@@ -291,7 +338,11 @@ export default function LHDNClaimScreen() {
             <Text style={s.sub}>Choosing a nickname only fills the beneficiary field. You still need to check eligibility.</Text>
           </View>}
           {field("Beneficiary (for example Self or parent’s name)",draft.beneficiary,v=>patch({beneficiary:v}))}
-          {rule?.mode!=="fixed" && field("Payment date (YYYY-MM-DD)",draft.dateText,v=>patch({dateText:v}))}
+          {showPaymentDate && field("Payment date (YYYY-MM-DD)",draft.dateText,v=>patch({dateText:v}))}
+          {dateCheck?.message && <View>
+            <Text accessibilityLiveRegion="polite" style={s.notice}>{dateCheck.message}</Text>
+            {dateCheck.receiptYear && years.includes(dateCheck.receiptYear) && button(`Use YA${dateCheck.receiptYear}`,()=>patch({tax_year:dateCheck.receiptYear!,rule_version:null}),true)}
+          </View>}
           {field(rule?.mode==="fixed"?"Personal relief amount":"Recorded amount (RM)",draft.amountText,v=>patch({amountText:v}),true)}
           {field("Eligible amount requested (RM)",draft.eligibleText,v=>patch({eligibleText:v}),true)}
           {receipt && <View style={s.card}><Text style={s.cardTitle}>Original receipt</Text><Text>{receipt.merchant_name} · {money(Number(receipt.total_amount))}</Text>
@@ -318,7 +369,24 @@ export default function LHDNClaimScreen() {
       </KeyboardAvoidingView></SafeAreaView>
       <Modal visible={!!image} onRequestClose={()=>setImage(null)}><SafeAreaView style={s.modalSafe}>{button("Close image",()=>setImage(null),true)}{image&&<Image source={{uri:image}} style={s.flex} resizeMode="contain"/>}</SafeAreaView></Modal>
     </Modal>
-    {!loading && !error && !busy && <FeatureGuideTour feature="lhdn" guide={guide} target={guideTargets.target}
+    <Modal visible={receiptPicker} onRequestClose={()=>{if(!busy)setReceiptPicker(false);}} animationType="slide">
+      <SafeAreaView style={s.modalSafe}>
+        <ScrollView contentContainerStyle={s.content}>
+          <Text accessibilityRole="header" style={s.cardTitle}>Saved receipts · YA {year}</Text>
+          <Text style={s.sub}>Choose evidence already in SafeSpend. This does not create or post an expense.</Text>
+          {savedReceipts.length===0 && <Text style={s.sub}>No saved receipts for this year yet.</Text>}
+          {savedReceipts.map(saved=><Pressable key={saved.id} accessibilityRole="button" disabled={busy}
+            onPress={()=>void attachSavedReceipt(saved.id)} style={s.card}>
+            <Text style={s.cardTitle}>{saved.merchant_name}</Text>
+            <Text style={s.sub}>{saved.receipt_date} · {money(Number(saved.total_amount))}</Text>
+          </Pressable>)}
+          {busy && <ActivityIndicator accessibilityLabel="Loading receipts"/>}
+          {moreReceipts && button("Load more receipts",()=>void loadSavedReceipts(false),true)}
+          {button("Close",()=>setReceiptPicker(false),true)}
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+    {!loading && !error && !busy && !receiptPicker && <FeatureGuideTour feature="lhdn" guide={guide} target={guideTargets.target}
       onMeasure={guideTargets.measure} onAction={(step) => {
         if (step === 0) router.push({ pathname: "/tax-filing", params: { year: String(year) } });
         else {

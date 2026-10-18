@@ -8,7 +8,7 @@ import {
 } from "../lib/fin-analysis.js";
 import { loadFinancialSnapshot } from "../lib/fin-data.js";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 30_000, maxRetries: 0 });
 const insightSchema = z.object({
   insights: z.array(z.string().trim().min(1).max(280)).length(3),
 });

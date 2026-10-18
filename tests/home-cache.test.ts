@@ -112,3 +112,19 @@ test("keeps a bounded number of persisted months", async () => {
   assert.equal(await reopened.getMonth("user-a", "2024-01-01"), null);
   assert.ok(await reopened.getMonth("user-a", "2026-01-01"));
 });
+
+test("an app update rejects old arithmetic snapshots and logout removes both cache versions", async () => {
+  const store = makeStore();
+  const prefix = "safespend.home.v1.user-a";
+  store.values.set(`${prefix}.home`, JSON.stringify(home));
+  store.values.set(`${prefix}.fin`, JSON.stringify(fin));
+  store.values.set(`${prefix}.month.${month.month}`, JSON.stringify({ ...month, total: 120 }));
+  store.values.set(`${prefix}.months`, JSON.stringify([month.month]));
+  const cache = createHomeCache(store);
+  assert.equal(await cache.getMonth("user-a", month.month), null);
+  assert.equal(await cache.getHome("user-a"), null);
+  assert.equal(await cache.getFin("user-a"), null);
+  await cache.putMonth("user-a", month);
+  await cache.clearUser("user-a");
+  assert.equal([...store.values.keys()].some(key => key.startsWith(prefix)), false);
+});

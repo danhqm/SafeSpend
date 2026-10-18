@@ -8,6 +8,9 @@ import {
 } from "@/types/finance";
 import { AccountPicker } from "@/components/account-picker";
 import { authenticatedApiFetch } from "@/utils/api";
+import { scanReceiptImage } from "@/utils/receipt-scan";
+import { prepareReceiptUpload } from "@/utils/prepare-receipt-image";
+import { getErrorMessage } from "@/utils/error-message";
 import { homeCache, monthOfDate } from "@/utils/home-cache";
 import { supabase } from "@/utils/supabase";
 import { Ionicons } from "@expo/vector-icons";
@@ -141,42 +144,64 @@ export default function ReceiptScanner() {
   }, [loadTransactions]);
 
   const pickImage = async () => {
+    if (scanning) return;
     setError(null);
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      setError("Camera permission is required to scan receipts.");
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      base64: true,
-      quality: 0.5,
-    });
-
-    if (!result.canceled && result.assets[0].base64) {
-      await scanReceipt(result.assets[0].base64);
+    setScanning(true);
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setError("Camera permission is required to scan receipts.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        quality: 1,
+      });
+      if (result.canceled) return;
+      const base64 = await prepareReceiptUpload(result.assets[0]);
+      await scanReceipt(base64);
+    } catch (scanError) {
+      setError(getErrorMessage(scanError, "Could not prepare this receipt image."));
+    } finally {
+      setScanning(false);
     }
   };
 
-  const scanReceipt = async (base64: string) => {
+  const openExistingReceipt = async (receiptId: string) => {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return;
+    const { data, error: lookupError } = await supabase.from("transactions").select("id")
+      .eq("user_id", auth.user.id).eq("receipt_id", receiptId).single();
+    if (lookupError || !data) { setError("Could not open the saved purchase. Refresh and try again."); return; }
+    router.push({ pathname: "/transaction/[id]", params: { id: data.id } });
+  };
+
+  const scanReceipt = async (base64: string, allowDuplicate = false) => {
     setScanning(true);
     setDraft(null);
     setError(null);
     try {
-      const response = await authenticatedApiFetch("/api/ocr", {
-        method: "POST",
-        body: JSON.stringify({ imageBase64: base64 }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || "OCR failed");
+      const result = await scanReceiptImage(authenticatedApiFetch, base64, { allowDuplicate });
+      if (result.kind === "duplicate") {
+        Alert.alert("Possible duplicate", "A saved purchase has the same merchant, date and amount. Review it before creating another expense.", [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open saved purchase", onPress: () => void openExistingReceipt(result.receiptId) },
+          { text: "Different purchase", onPress: () => void scanReceipt(base64, true) },
+        ]);
+        return;
       }
-      setDraft({ ...(payload.data as Omit<ReceiptDraft, "account_id">), account_id: null });
+      if (result.receipt.status === "posted") {
+        Alert.alert("Receipt already recorded", "This exact image belongs to a saved purchase. No new expense was added.", [
+          { text: "OK" }, { text: "View purchase", onPress: () => void openExistingReceipt(result.receipt.id) },
+        ]);
+        await loadTransactions();
+      } else {
+        setDraft({ ...result.receipt, status: "draft", account_id: null });
+      }
     } catch (scanError) {
       console.error("Receipt scan failed", scanError);
-      setError(scanError instanceof Error ? scanError.message : "Receipt scan failed");
+      setError(getErrorMessage(scanError, "Receipt scan failed"));
     } finally {
       setScanning(false);
     }

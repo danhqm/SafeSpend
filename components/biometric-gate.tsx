@@ -12,10 +12,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { isFaceIdEnabledFor, unlockWithFaceId } from "../utils/biometrics";
 import { homeCache } from "../utils/home-cache";
 import { getSavedUserId } from "../utils/offline-session";
+import { checkBiometricAccess } from "../utils/offline-session-core";
 import { supabase } from "../utils/supabase";
 import { BrandSplash } from "./brand-splash";
 
-type GateStatus = "checking" | "open" | "locked";
+type GateStatus = "checking" | "open" | "locked" | "unavailable";
 
 export function BiometricGate({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -37,19 +38,21 @@ export function BiometricGate({ children }: { children: ReactNode }) {
     const checkLock = async () => {
       const id = ++checkId.current;
       try {
-        const { userId } = await getSavedUserId();
-        const enabled = userId
-          ? await isFaceIdEnabledFor(userId)
-          : false;
+        const nextStatus = await checkBiometricAccess({
+          getSavedUserId,
+          isEnabledFor: isFaceIdEnabledFor,
+        });
         if (!mounted || id !== checkId.current) return;
-        setUnlockError("");
-        setStatus(enabled ? "locked" : "open");
-        if (enabled) setChallenge((value) => value + 1);
+        setUnlockError(nextStatus === "unavailable"
+          ? "Could not check your saved sign-in. Use your password to continue."
+          : "");
+        setStatus(nextStatus);
+        if (nextStatus === "locked") setChallenge((value) => value + 1);
       } catch {
         if (!mounted || id !== checkId.current) return;
         // Fail closed if a stored session or its Face ID preference cannot be read.
         setUnlockError("Could not check your saved sign-in. Use your password to continue.");
-        setStatus("locked");
+        setStatus("unavailable");
       } finally {
         if (mounted && id === checkId.current) setReady(true);
       }
@@ -142,14 +145,16 @@ export function BiometricGate({ children }: { children: ReactNode }) {
       {status !== "open" && (
         <SafeAreaView style={styles.overlay}>
           <Text style={styles.brand}>SafeSpend</Text>
-          {status === "locked" ? (
+          {status === "locked" || status === "unavailable" ? (
             <View style={styles.lockContent}>
               <Text style={styles.title}>Unlock SafeSpend</Text>
               <Text style={styles.description}>
-                Use Face ID to view your financial information.
+                {status === "unavailable"
+                  ? "Sign in with your password to view your financial information."
+                  : "Use Face ID to view your financial information."}
               </Text>
               {unlockError ? <Text style={styles.error}>{unlockError}</Text> : null}
-              <Pressable
+              {status === "locked" && <Pressable
                 accessibilityRole="button"
                 disabled={prompting}
                 onPress={() => setChallenge((value) => value + 1)}
@@ -158,7 +163,7 @@ export function BiometricGate({ children }: { children: ReactNode }) {
                 <Text style={styles.primaryText}>
                   {prompting ? "Waiting for Face ID…" : "Try Face ID again"}
                 </Text>
-              </Pressable>
+              </Pressable>}
               <Pressable
                 accessibilityRole="button"
                 disabled={prompting}

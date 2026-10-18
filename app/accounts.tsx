@@ -7,6 +7,8 @@ import {
   type LedgerTransaction,
 } from "@/types/finance";
 import { supabase } from "@/utils/supabase";
+import { screenColors as colors } from "@/utils/screen-theme";
+import { fetchAllPages } from "@/utils/pagination-core";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, Stack } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
@@ -20,8 +22,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const PRIMARY = "#00D09E";
 
 function accountIcon(account: FinancialAccount) {
   if (account.account_type === "cash") return "cash-outline" as const;
@@ -46,35 +46,30 @@ export default function AccountsScreen() {
       if (authError || !userId) throw authError ?? new Error("Authentication required");
       const today = localDateString();
 
-      const [accountResult, transactionResult, transferResult] = await Promise.all([
-        supabase
+      const [allAccounts, allTransactions, allTransfers] = await Promise.all([
+        fetchAllPages(() => supabase
           .from("financial_accounts")
-          .select("id, user_id, name, account_type, opening_balance, currency, is_archived, created_at")
+          .select("id, user_id, name, account_type, opening_balance, currency, is_archived, created_at", { count: "exact" })
           .eq("user_id", userId)
-          .eq("is_archived", false)
-          .order("created_at"),
-        supabase
+          .eq("is_archived", false)),
+        fetchAllPages(() => supabase
           .from("transactions")
-          .select("account_id, transaction_type, amount, status")
+          .select("id, account_id, transaction_type, amount, status", { count: "exact" })
           .eq("user_id", userId)
           .eq("status", "posted")
-          .lte("occurred_on", today),
-        supabase
+          .lte("occurred_on", today)),
+        fetchAllPages(() => supabase
           .from("account_transfers")
-          .select("id, user_id, from_account_id, to_account_id, amount, currency, occurred_on, notes, created_at")
+          .select("id, user_id, from_account_id, to_account_id, amount, currency, occurred_on, notes, created_at", { count: "exact" })
           .eq("user_id", userId)
-          .lte("occurred_on", today)
-          .order("occurred_on", { ascending: false })
-          .order("created_at", { ascending: false }),
+          .lte("occurred_on", today)),
       ]);
 
-      if (accountResult.error) throw accountResult.error;
-      if (transactionResult.error) throw transactionResult.error;
-      if (transferResult.error) throw transferResult.error;
-
-      setAccounts((accountResult.data || []) as unknown as FinancialAccount[]);
-      setTransactions((transactionResult.data || []) as unknown as LedgerTransaction[]);
-      setTransfers((transferResult.data || []) as unknown as AccountTransfer[]);
+      setAccounts((allAccounts as FinancialAccount[]).sort((a, b) => a.created_at.localeCompare(b.created_at)));
+      setTransactions(allTransactions as unknown as LedgerTransaction[]);
+      setTransfers((allTransfers as AccountTransfer[]).sort((a, b) =>
+        b.occurred_on.localeCompare(a.occurred_on) ||
+        b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id)));
     } catch (loadError) {
       console.error("Account load failed", loadError);
       setError("Could not load your accounts. Please try again.");
@@ -159,7 +154,7 @@ export default function AccountsScreen() {
         {error ? <Text selectable style={styles.errorText}>{error}</Text> : null}
         {loading ? (
           <View style={styles.loadingState}>
-            <ActivityIndicator size="large" color={PRIMARY} />
+              <ActivityIndicator size="large" color={colors.teal} />
           </View>
         ) : accountRows.length ? (
           <>
@@ -239,40 +234,40 @@ export default function AccountsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F4F8F6" },
-  content: { padding: 18, paddingBottom: 48, gap: 12 },
-  summaryCard: { padding: 20, borderRadius: 20, backgroundColor: "#093030" },
-  summaryEyebrow: { color: "#8CDDC8", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
-  netValue: { color: "#FFFFFF", fontSize: 30, fontWeight: "800", fontVariant: ["tabular-nums"], marginTop: 4 },
+  container: { flex: 1, backgroundColor: colors.canvas },
+  content: { padding: 20, paddingTop: 28, paddingBottom: 48, gap: 14, width: '100%', maxWidth: 780, alignSelf: 'center' },
+  summaryCard: { padding: 24, borderRadius: 24, backgroundColor: colors.teal },
+  summaryEyebrow: { color: colors.field, fontFamily: 'Poppins_700Bold', fontSize: 13 },
+  netValue: { color: colors.surface, fontFamily: 'Poppins_700Bold', fontSize: 30, fontVariant: ["tabular-nums"], marginTop: 4 },
   summaryRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 18 },
   summaryRight: { alignItems: "flex-end" },
   summaryLabel: { color: "#BBD3CD", fontSize: 10 },
   assetValue: { color: "#65E0BD", fontSize: 14, fontWeight: "800", fontVariant: ["tabular-nums"], marginTop: 3 },
   debtValue: { color: "#FF9F9F", fontSize: 14, fontWeight: "800", fontVariant: ["tabular-nums"], marginTop: 3 },
   actionRow: { flexDirection: "row", gap: 10 },
-  primaryAction: { flex: 1, minHeight: 50, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: PRIMARY },
+  primaryAction: { flex: 1, minHeight: 50, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.surface },
   primaryActionText: { color: "#052224", fontSize: 13, fontWeight: "800" },
-  secondaryAction: { flex: 1, minHeight: 50, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#BBD8CF", borderRadius: 14, backgroundColor: "#FFFFFF" },
+  secondaryAction: { flex: 1, minHeight: 50, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.teal, borderRadius: 14, backgroundColor: colors.mint },
   secondaryActionText: { color: "#093030", fontSize: 13, fontWeight: "800" },
-  errorText: { color: "#A33D3D", fontSize: 12, textAlign: "center" },
+  errorText: { color: '#B42318', backgroundColor: '#FFF0ED', padding: 12, borderRadius: 12, fontSize: 12, textAlign: "center" },
   loadingState: { minHeight: 380, alignItems: "center", justifyContent: "center" },
   noticeCard: { flexDirection: "row", gap: 9, padding: 13, borderRadius: 14, backgroundColor: "#FFF4D6" },
   noticeText: { flex: 1, color: "#6C4A0A", fontSize: 11, lineHeight: 17 },
-  sectionTitle: { color: "#093030", fontSize: 16, fontWeight: "800", marginTop: 7 },
-  accountCard: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 16, backgroundColor: "#FFFFFF", boxShadow: "0 1px 3px rgba(5,34,36,0.07)" },
+  sectionTitle: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 18, marginTop: 14 },
+  accountCard: { flexDirection: "row", flexWrap: 'wrap', gap: 8, alignItems: "center", padding: 18, borderRadius: 16, backgroundColor: colors.surface },
   accountIcon: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: "#DDF4EC" },
   accountDetails: { flex: 1, minWidth: 0, paddingHorizontal: 11 },
-  accountName: { color: "#093030", fontSize: 14, fontWeight: "800" },
+  accountName: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 14 },
   accountType: { color: "#6C817D", fontSize: 10, marginTop: 2 },
   balanceBlock: { alignItems: "flex-end" },
   balanceLabel: { color: "#6C817D", fontSize: 9 },
   balanceValue: { color: "#093030", fontSize: 14, fontWeight: "800", fontVariant: ["tabular-nums"], marginTop: 2 },
-  transferRow: { flexDirection: "row", alignItems: "center", padding: 13, borderRadius: 14, backgroundColor: "#FFFFFF" },
+  transferRow: { flexDirection: "row", alignItems: "center", padding: 16, borderRadius: 14, backgroundColor: colors.surface },
   transferTextBlock: { flex: 1, minWidth: 0 },
   transferTitle: { color: "#093030", fontSize: 12, fontWeight: "700" },
   transferDate: { color: "#6C817D", fontSize: 10, marginTop: 3 },
   transferAmount: { color: "#087D65", fontSize: 13, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  emptyCard: { minHeight: 300, alignItems: "center", justifyContent: "center", padding: 28, borderRadius: 18, backgroundColor: "#FFFFFF" },
+  emptyCard: { minHeight: 300, alignItems: "center", justifyContent: "center", padding: 28, borderRadius: 24, backgroundColor: colors.surface },
   emptyTitle: { color: "#093030", fontSize: 17, fontWeight: "800", marginTop: 10 },
   emptyText: { color: "#617470", fontSize: 12, lineHeight: 19, textAlign: "center", marginTop: 5 },
 });

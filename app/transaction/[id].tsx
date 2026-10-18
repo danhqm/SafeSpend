@@ -11,6 +11,7 @@ import { AccountPicker } from "@/components/account-picker";
 import { authenticatedApiFetch } from "@/utils/api";
 import { homeCache, monthOfDate } from "@/utils/home-cache";
 import { supabase } from "@/utils/supabase";
+import { screenColors as colors } from "@/utils/screen-theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Link, Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
@@ -239,18 +240,18 @@ export default function TransactionDetailScreen() {
         >
           {loading ? (
             <View style={styles.centerState}>
-              <ActivityIndicator size="large" color={PRIMARY} />
+              <ActivityIndicator size="large" color={colors.teal} />
             </View>
           ) : error || !transaction ? (
             <View style={styles.centerState}>
               <Text style={styles.errorTitle}>Transaction unavailable</Text>
               <Text style={styles.errorText}>{error}</Text>
-              <TouchableOpacity style={styles.retryButton} onPress={loadTransaction}>
+              <TouchableOpacity accessibilityRole="button" style={styles.retryButton} onPress={loadTransaction}>
                 <Text style={styles.retryText}>Try again</Text>
               </TouchableOpacity>
             </View>
           ) : (
-            <>
+            <View style={styles.formSheet}>
               {isReceipt ? (
                 <View style={styles.evidenceCard}>
                   <Ionicons name="shield-checkmark-outline" size={23} color="#087D65" />
@@ -304,6 +305,7 @@ export default function TransactionDetailScreen() {
               <Text style={styles.label}>Amount (MYR)</Text>
               <TextInput
                 value={amount}
+                accessibilityLabel="Transaction amount in ringgit"
                 onChangeText={setAmount}
                 keyboardType="decimal-pad"
                 style={styles.input}
@@ -314,6 +316,8 @@ export default function TransactionDetailScreen() {
                 onChangeText={setDate}
                 autoCapitalize="none"
                 placeholder="YYYY-MM-DD"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Transaction date, YYYY-MM-DD"
                 style={styles.input}
               />
               <Text style={styles.label}>
@@ -321,6 +325,8 @@ export default function TransactionDetailScreen() {
               </Text>
               <TextInput
                 value={merchant}
+                placeholderTextColor={colors.muted}
+                accessibilityLabel={transactionType === 'income' ? 'Income source' : 'Merchant'}
                 onChangeText={setMerchant}
                 placeholder="Optional"
                 style={styles.input}
@@ -351,6 +357,8 @@ export default function TransactionDetailScreen() {
               <Text style={styles.label}>Notes</Text>
               <TextInput
                 value={notes}
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Transaction notes"
                 onChangeText={setNotes}
                 placeholder="Optional"
                 multiline
@@ -360,11 +368,12 @@ export default function TransactionDetailScreen() {
 
               <TouchableOpacity
                 style={[styles.saveButton, (saving || deleting) && styles.disabled]}
+                accessibilityRole="button"
                 onPress={saveTransaction}
                 disabled={saving || deleting}
               >
                 {saving ? (
-                  <ActivityIndicator color="#052224" />
+                  <ActivityIndicator color={colors.mint} />
                 ) : (
                   <Text style={styles.saveText}>Save changes</Text>
                 )}
@@ -383,7 +392,7 @@ export default function TransactionDetailScreen() {
                   </Text>
                 )}
               </TouchableOpacity>
-            </>
+            </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -392,20 +401,21 @@ export default function TransactionDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F4F8F6" },
-  content: { padding: 20, paddingBottom: 48 },
+  container: { flex: 1, backgroundColor: colors.canvas },
+  content: { padding: 20, paddingTop: 28, paddingBottom: 48, width: '100%', maxWidth: 780, alignSelf: 'center' },
+  formSheet: { padding: 20, paddingTop: 4, borderRadius: 24, backgroundColor: colors.surface },
   centerState: { minHeight: 480, alignItems: "center", justifyContent: "center", gap: 12 },
   errorTitle: { color: "#093030", fontSize: 18, fontWeight: "800" },
-  errorText: { color: "#617470", fontSize: 13, textAlign: "center", lineHeight: 20 },
+  errorText: { color: colors.muted, fontSize: 13, textAlign: "center", lineHeight: 20 },
   retryButton: {
     minHeight: 46,
     minWidth: 130,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 13,
-    backgroundColor: PRIMARY,
+    backgroundColor: colors.teal,
   },
-  retryText: { color: "#052224", fontWeight: "800" },
+  retryText: { color: colors.mint, fontFamily: 'Poppins_700Bold' },
   evidenceCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -428,7 +438,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
   },
   receiptButtonText: { flex: 1, color: "#087D65", fontSize: 13, fontWeight: "800" },
-  label: { color: "#31504D", fontSize: 13, fontWeight: "700", marginTop: 18, marginBottom: 8 },
+  label: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 13, marginTop: 20, marginBottom: 8 },
   segmentedRow: { flexDirection: "row", gap: 8 },
   segmentButton: {
     flex: 1,
@@ -464,9 +474,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
-    backgroundColor: PRIMARY,
+    backgroundColor: colors.teal,
   },
-  saveText: { color: "#052224", fontSize: 15, fontWeight: "800" },
+  saveText: { color: colors.mint, fontFamily: 'Poppins_700Bold', fontSize: 15 },
   deleteButton: {
     minHeight: 50,
     marginTop: 12,

@@ -159,6 +159,7 @@ export default function ProfileScreen() {
     onPhoto={() => void pickAvatar()}
     onAccounts={() => router.push("/accounts")}
     onTaxRelief={() => router.push("/lhdn")}
+    onPrivacy={() => router.push("/privacy")}
     onToggleFaceId={() => void toggleFaceId()}
     onLogout={() => void logout()}
     onRetry={() => void loadProfile()}

@@ -12,6 +12,8 @@ import {
 } from "@/types/finance";
 import { supabase } from "@/utils/supabase";
 import { homeCache } from "@/utils/home-cache";
+import { fetchAllPages } from "@/utils/pagination-core";
+import { screenColors as colors } from "@/utils/screen-theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Stack } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
@@ -61,24 +63,23 @@ export default function BudgetsScreen() {
       if (authError || !userId) throw authError ?? new Error("Authentication required");
 
       const monthEnd = shiftMonth(selectedMonth, 1);
-      const [budgetResult, transactionResult] = await Promise.all([
+      const [budgetResult, transactions] = await Promise.all([
         supabase
           .from("budgets")
           .select("id, user_id, month_start, category, amount, currency")
           .eq("user_id", userId)
           .eq("month_start", selectedMonth),
-        supabase
+        fetchAllPages(() => supabase
           .from("transactions")
-          .select("transaction_type, amount, category")
+          .select("id, transaction_type, amount, category", { count: "exact" })
           .eq("user_id", userId)
           .eq("status", "posted")
           .in("transaction_type", ["expense", "refund"])
           .gte("occurred_on", selectedMonth)
-          .lt("occurred_on", monthEnd),
+          .lt("occurred_on", monthEnd)),
       ]);
 
       if (budgetResult.error) throw budgetResult.error;
-      if (transactionResult.error) throw transactionResult.error;
 
       const nextInputs: BudgetInputs = {};
       ((budgetResult.data || []) as unknown as MonthlyBudget[]).forEach((budget) => {
@@ -86,7 +87,7 @@ export default function BudgetsScreen() {
       });
 
       const nextActuals: Actuals = {};
-      (transactionResult.data || []).forEach((transaction) => {
+      transactions.forEach((transaction) => {
         const row = transaction as Pick<LedgerTransaction, "transaction_type" | "amount" | "category">;
         nextActuals[row.category] =
           (nextActuals[row.category] || 0) + expenseEffect(row.transaction_type, row.amount);
@@ -151,13 +152,13 @@ export default function BudgetsScreen() {
     const remaining = limit - actual;
     const over = limit > 0 && remaining < 0;
     return (
-      <View key={category} style={styles.budgetCard}>
+      <View key={category} style={[styles.budgetCard, category === 'ALL' && styles.overallCard]}>
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleBlock}>
-            <Text style={styles.categoryTitle}>
+            <Text style={[styles.categoryTitle, category === 'ALL' && styles.overallTitle]}>
               {category === "ALL" ? "Overall monthly limit" : formatCategory(category)}
             </Text>
-            <Text style={[styles.actualText, over && styles.overText]}>
+            <Text style={[styles.actualText, category === 'ALL' && styles.overallActual, over && (category === 'ALL' ? styles.overallOver : styles.overText)]}>
               RM{Math.max(0, actual).toFixed(2)} spent
               {limit > 0
                 ? ` · ${over ? "RM" + Math.abs(remaining).toFixed(2) + " over" : "RM" + remaining.toFixed(2) + " left"}`
@@ -172,6 +173,7 @@ export default function BudgetsScreen() {
                 setInputs((current) => ({ ...current, [category]: value }))
               }
               placeholder="—"
+              placeholderTextColor={colors.muted}
               keyboardType="decimal-pad"
               accessibilityLabel={`${formatCategory(category)} budget in ringgit`}
               style={styles.amountInput}
@@ -206,10 +208,11 @@ export default function BudgetsScreen() {
           <View style={styles.monthPicker}>
             <TouchableOpacity
               style={styles.monthButton}
+              accessibilityRole="button"
               onPress={() => setSelectedMonth((month) => shiftMonth(month, -1))}
               accessibilityLabel="Previous month"
             >
-              <Ionicons name="chevron-back" size={22} color="#093030" />
+              <Ionicons name="chevron-back" size={22} color={colors.mint} />
             </TouchableOpacity>
             <View style={styles.monthTextBlock}>
               <Text style={styles.monthLabel}>{monthDisplayName(selectedMonth)}</Text>
@@ -217,16 +220,17 @@ export default function BudgetsScreen() {
             </View>
             <TouchableOpacity
               style={styles.monthButton}
+              accessibilityRole="button"
               onPress={() => setSelectedMonth((month) => shiftMonth(month, 1))}
               accessibilityLabel="Next month"
             >
-              <Ionicons name="chevron-forward" size={22} color="#093030" />
+              <Ionicons name="chevron-forward" size={22} color={colors.mint} />
             </TouchableOpacity>
           </View>
 
           {loading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color={PRIMARY} />
+              <ActivityIndicator size="large" color={colors.teal} />
             </View>
           ) : (
             <>
@@ -241,11 +245,12 @@ export default function BudgetsScreen() {
               )}
               <TouchableOpacity
                 style={[styles.saveButton, saving && styles.disabled]}
+                accessibilityRole="button"
                 onPress={saveBudgets}
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator color="#052224" />
+                  <ActivityIndicator color={colors.mint} />
                 ) : (
                   <Text style={styles.saveText}>Save monthly budget</Text>
                 )}
@@ -260,8 +265,8 @@ export default function BudgetsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F4F8F6" },
-  content: { padding: 18, paddingBottom: 48 },
+  container: { flex: 1, backgroundColor: colors.canvas },
+  content: { padding: 20, paddingTop: 28, paddingBottom: 48, width: '100%', maxWidth: 780, alignSelf: 'center' },
   monthPicker: {
     flexDirection: "row",
     alignItems: "center",
@@ -274,24 +279,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.teal,
   },
   monthTextBlock: { alignItems: "center" },
-  monthLabel: { color: "#093030", fontSize: 19, fontWeight: "800" },
-  monthHint: { color: "#617470", fontSize: 11, marginTop: 2 },
+  monthLabel: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 19 },
+  monthHint: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 11, marginTop: 2 },
   loadingState: { minHeight: 420, alignItems: "center", justifyContent: "center" },
-  errorText: { color: "#A33D3D", textAlign: "center", marginBottom: 12 },
+  errorText: { color: '#B42318', backgroundColor: '#FFF0ED', padding: 12, borderRadius: 12, textAlign: "center", marginBottom: 12 },
   budgetCard: {
-    padding: 15,
-    marginBottom: 10,
+    padding: 18,
+    marginBottom: 12,
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    boxShadow: "0 1px 3px rgba(5, 34, 36, 0.07)",
+    backgroundColor: colors.surface,
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  overallCard: { backgroundColor: colors.teal, paddingVertical: 24 },
+  overallTitle: { color: colors.surface },
+  overallActual: { color: colors.field },
+  overallOver: { color: '#FFD6C9', fontWeight: '700' },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 12, flexWrap: 'wrap' },
   cardTitleBlock: { flex: 1, minWidth: 0 },
-  categoryTitle: { color: "#093030", fontSize: 14, fontWeight: "800" },
-  actualText: { color: "#617470", fontSize: 11, marginTop: 4 },
+  categoryTitle: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 14 },
+  actualText: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 11, marginTop: 4, lineHeight: 18 },
   overText: { color: "#B42318", fontWeight: "700" },
   inputWrap: {
     width: 112,
@@ -307,6 +315,7 @@ const styles = StyleSheet.create({
   currencyPrefix: { color: "#617470", fontSize: 11, fontWeight: "700" },
   amountInput: {
     flex: 1,
+    minWidth: 0,
     height: "100%",
     paddingHorizontal: 6,
     color: "#093030",
@@ -323,17 +332,17 @@ const styles = StyleSheet.create({
   },
   fill: { height: "100%", borderRadius: 999, backgroundColor: PRIMARY },
   fillOver: { backgroundColor: "#E45151" },
-  sectionTitle: { color: "#093030", fontSize: 17, fontWeight: "800", marginTop: 14 },
-  sectionHint: { color: "#617470", fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 12 },
+  sectionTitle: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 18, marginTop: 18 },
+  sectionHint: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 12, lineHeight: 20, marginTop: 4, marginBottom: 16 },
   saveButton: {
     minHeight: 52,
     marginTop: 18,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
-    backgroundColor: PRIMARY,
+    backgroundColor: colors.teal,
   },
   disabled: { opacity: 0.55 },
-  saveText: { color: "#052224", fontSize: 15, fontWeight: "800" },
-  saveHint: { color: "#617470", fontSize: 11, textAlign: "center", marginTop: 8 },
+  saveText: { color: colors.mint, fontFamily: 'Poppins_700Bold', fontSize: 15 },
+  saveHint: { color: colors.muted, fontSize: 11, textAlign: "center", marginTop: 8 },
 });

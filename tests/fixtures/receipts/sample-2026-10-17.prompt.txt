@@ -1,0 +1,29 @@
+Create one high-resolution portrait image of a clean Malaysian grocery receipt for testing a receipt OCR app called SafeSpend. Flat straight-on scan, fully visible white thermal paper with generous white margins, sharp black monospaced printing, subtle light-gray outer background. No perspective distortion, hands, props, logos, QR codes, barcodes or decorative graphics. All printed text must be large, accurate and easy for OCR to read. Fictional merchant; clearly marked sample in a small legible footer, no overlay across transaction details. Use exactly the following text and align amount columns neatly:
+
+SAFESPEND DEMO MART
+Fictional Grocery Store
+Kuala Lumpur, Malaysia
+--------------------------------
+RECEIPT NO: TEST-20261017-001
+DATE: 2026-10-17
+TIME: 14:30
+CURRENCY: MYR
+--------------------------------
+ITEM                      MYR
+Wholemeal Bread           4.50
+Fresh Milk 1L             7.90
+Eggs 10 pcs               8.60
+Apples 4 pcs              6.00
+Rice 5kg                 18.90
+--------------------------------
+SUBTOTAL                 45.90
+TOTAL MYR                45.90
+CASH                     50.00
+CHANGE                    4.10
+--------------------------------
+5 items
+Thank you
+SAMPLE - FOR APP TESTING ONLY
+Not valid for reimbursement or tax claims
+
+Keep the receipt compact with all content readable in one image. Do not add or change any numbers, dates, items, taxes or fees.

@@ -167,7 +167,9 @@ export function summarizeMonthlySpending(
     .map(([category, amount]) => ({ category, amount: Math.max(0, amount) }))
     .filter(({ amount }) => amount > 0)
     .sort((a, b) => b.amount - a.amount);
-  const total = categories.reduce((sum, item) => sum + item.amount, 0);
+  // Refunds in one category still reduce overall spending in other categories.
+  // Only the chart's category slices are clipped to nonnegative values.
+  const total = Math.max(0, Object.values(netByCategory).reduce((sum, amount) => sum + amount, 0));
   const estimatedIncome = Math.max(0, Number(profileMonthlyIncome) || 0);
   const income = recordedIncome > 0 ? recordedIncome : estimatedIncome;
 

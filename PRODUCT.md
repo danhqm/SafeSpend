@@ -16,6 +16,7 @@ SafeSpend helps users understand and manage their money. Its existing flows cove
 
 ## Capabilities and Constraints
 
+- Learn follows Learn → Decide → Apply, with a recommended next step and optional spending/saving/debt focus. Versioned server-scored quizzes use two reviewed sets of three scenarios, with feedback linked to the relevant lesson point. Structured practice drafts resume and preserve earlier confirmed evidence; generic goals cannot award new learning completion. Historical action progress is labelled as earlier progress. Missions explain their selection and remain self-reported. Optional Fin lesson help requires an explicit Send and existing AI consent. The three `20261018` learning migrations and compatible backend were deployed and hosted checks passed; signed-in Web testing included quiz/draft recovery and one live Fin lesson response through a temporary localhost proxy. Production CORS excludes the localhost test origin. The user subsequently reported that this learning update works well on a physical device. No mobile binary was published during that deployment; see `docs/deployment-learning-2026-10-18.md`.
 - Profile displays the user's name, member ID and avatar. Users can choose a profile photo and edit their username, mobile number, date of birth and monthly income through the existing editor.
 - Accounts manages cash, bank, credit card and e-wallet accounts and their transfers.
 - LHDN Tax Relief supports organizing and reviewing claims and their receipt evidence.
@@ -24,6 +25,7 @@ SafeSpend helps users understand and manage their money. Its existing flows cove
 - Optional Face ID is available only on supported, enrolled iPhones outside Expo Go. Enabling it requires device authentication.
 - Logout signs out the user and clears the saved user-specific Home data.
 - The existing five-tab navigation and authenticated route guards remain in place.
+- The seven screens previously using stock stack headers share deep-teal headers, Poppins titles and bare mint back arrows without colored button backgrounds, with pale-green canvases and readable form/content panels. Back uses existing history with a direct-entry fallback to Home, Accounts or Learn. The native stack and modal presentations remain in place. Verification and native-device limits are recorded in `.impeccable/surfaces/detail-pages.md`.
 - The application uses React Native and Expo with Expo Router. Web rendering is also available for development verification.
 
 ## Brand Commitments

@@ -1,6 +1,7 @@
 import { AccountPicker } from "@/components/account-picker";
 import { localDateString, type FinancialAccount } from "@/types/finance";
 import { supabase } from "@/utils/supabase";
+import { screenColors as colors } from "@/utils/screen-theme";
 import { Stack, useRouter } from "expo-router";
 import { useFocusEffect } from "expo-router/react-navigation";
 import React, { useCallback, useState } from "react";
@@ -16,8 +17,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const PRIMARY = "#00D09E";
 
 export default function TransferScreen() {
   const router = useRouter();
@@ -131,10 +130,10 @@ export default function TransferScreen() {
         >
           {loading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color={PRIMARY} />
+              <ActivityIndicator size="large" color={colors.teal} />
             </View>
           ) : (
-            <>
+            <View style={styles.formSheet}>
               {accounts.length < 2 ? (
                 <View style={styles.warningCard}>
                   <Text selectable style={styles.warningText}>
@@ -164,6 +163,8 @@ export default function TransferScreen() {
                 onChangeText={setAmount}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Transfer amount in ringgit"
                 style={styles.input}
               />
               <Text style={styles.label}>Date</Text>
@@ -172,6 +173,8 @@ export default function TransferScreen() {
                 onChangeText={setDate}
                 autoCapitalize="none"
                 placeholder="YYYY-MM-DD"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Transfer date, YYYY-MM-DD"
                 style={styles.input}
               />
               <Text style={styles.label}>Notes</Text>
@@ -180,6 +183,8 @@ export default function TransferScreen() {
                 onChangeText={setNotes}
                 maxLength={500}
                 placeholder="Optional"
+                placeholderTextColor={colors.muted}
+                accessibilityLabel="Transfer notes"
                 multiline
                 textAlignVertical="top"
                 style={[styles.input, styles.notesInput]}
@@ -191,6 +196,7 @@ export default function TransferScreen() {
               </View>
 
               <TouchableOpacity
+                accessibilityRole="button"
                 style={[
                   styles.saveButton,
                   (saving || accounts.length < 2) && styles.disabled,
@@ -199,12 +205,12 @@ export default function TransferScreen() {
                 disabled={saving || accounts.length < 2}
               >
                 {saving ? (
-                  <ActivityIndicator color="#052224" />
+                  <ActivityIndicator color={colors.mint} />
                 ) : (
                   <Text style={styles.saveText}>Record transfer</Text>
                 )}
               </TouchableOpacity>
-            </>
+            </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -213,17 +219,18 @@ export default function TransferScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F4F8F6" },
-  content: { padding: 20, paddingBottom: 48 },
+  container: { flex: 1, backgroundColor: colors.canvas },
+  content: { padding: 20, paddingTop: 28, paddingBottom: 48, width: '100%', maxWidth: 780, alignSelf: 'center' },
+  formSheet: { padding: 20, paddingTop: 4, borderRadius: 24, backgroundColor: colors.surface },
   loadingState: { minHeight: 450, alignItems: "center", justifyContent: "center" },
   warningCard: { padding: 14, borderRadius: 14, backgroundColor: "#FFF4D6" },
   warningText: { color: "#6C4A0A", fontSize: 12, lineHeight: 18 },
-  label: { color: "#31504D", fontSize: 13, fontWeight: "700", marginTop: 18, marginBottom: 8 },
+  label: { color: colors.ink, fontFamily: 'Poppins_700Bold', fontSize: 13, marginTop: 20, marginBottom: 8 },
   input: { minHeight: 52, paddingHorizontal: 14, borderWidth: 1, borderColor: "#C9DAD4", borderRadius: 13, backgroundColor: "#FFFFFF", color: "#093030", fontSize: 15 },
   notesInput: { minHeight: 96, paddingTop: 14 },
-  helperCard: { padding: 13, marginTop: 10, borderRadius: 13, backgroundColor: "#E9F5F1" },
-  helperText: { color: "#526965", fontSize: 11, lineHeight: 18 },
-  saveButton: { minHeight: 52, marginTop: 28, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: PRIMARY },
-  saveText: { color: "#052224", fontSize: 15, fontWeight: "800" },
+  helperCard: { padding: 14, marginTop: 14, borderRadius: 13, backgroundColor: colors.field },
+  helperText: { color: colors.muted, fontFamily: 'Poppins_400Regular', fontSize: 12, lineHeight: 20 },
+  saveButton: { minHeight: 52, marginTop: 28, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.teal },
+  saveText: { color: colors.mint, fontFamily: 'Poppins_700Bold', fontSize: 15 },
   disabled: { opacity: 0.55 },
 });

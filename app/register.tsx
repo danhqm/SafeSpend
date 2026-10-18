@@ -207,8 +207,10 @@ export default function Register() {
           />
 
           <Text style={styles.policyText}>
-            By continuing, you agree to Terms of Use and Privacy Policy{" "}
-            <Text style={{ fontWeight: "700" }}>Log In</Text>
+            Before signing up, read our{" "}
+            <Text accessibilityRole="link" style={styles.footerLink} onPress={() => router.push("/privacy")}>
+              Privacy & data notice
+            </Text>. AI features stay off until you enable them in Privacy settings.
           </Text>
 
           <TouchableOpacity

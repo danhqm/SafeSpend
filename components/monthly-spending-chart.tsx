@@ -104,12 +104,16 @@ export function MonthlySpendingChart({
     [canGoNext, onNext, onPrevious],
   );
 
+  // A refund can exceed this month's purchases in one category. Positive
+  // categories form the ring; the center and budget use true net spending.
+  const chartTotal = categories.reduce((sum, item) => sum + item.amount, 0);
+  const refundOffset = Math.max(0, chartTotal - total);
   const arcs = categories.map((item, index) => {
-    const ratio = total > 0 ? item.amount / total : 0;
+    const ratio = chartTotal > 0 ? item.amount / chartTotal : 0;
     const length = ratio * CIRCUMFERENCE;
-    const start = total > 0
+    const start = chartTotal > 0
       ? (categories.slice(0, index).reduce((sum, previous) => sum + previous.amount, 0) /
-          total) * CIRCUMFERENCE
+          chartTotal) * CIRCUMFERENCE
       : 0;
     const angle = -Math.PI / 2 + ((start + length / 2) / CIRCUMFERENCE) * 2 * Math.PI;
     return {
@@ -245,7 +249,7 @@ export function MonthlySpendingChart({
                 ))}
               </Svg>
               <View style={styles.centerLabel} pointerEvents="none">
-                <Text style={styles.centerEyebrow}>TOTAL SPENT</Text>
+                <Text style={styles.centerEyebrow}>NET SPENDING</Text>
                 <Text style={styles.centerValue} adjustsFontSizeToFit numberOfLines={1} selectable>
                   {formatRM(total)}
                 </Text>
@@ -254,8 +258,8 @@ export function MonthlySpendingChart({
             </View>
 
             <Text style={styles.breakdownLabel}>Where your money went</Text>
-            {total === 0 ? (
-              <Text style={styles.emptyText}>No expenses recorded for this month yet.</Text>
+            {chartTotal === 0 ? (
+              <Text style={styles.emptyText}>No positive net spending categories for this month.</Text>
             ) : (
               <View style={styles.legend}>
                 {arcs.map((arc) => (
@@ -270,7 +274,10 @@ export function MonthlySpendingChart({
                 ))}
               </View>
             )}
-            <Text style={styles.shareCaption}>Percentages show each category’s share of total spending.</Text>
+            <Text style={styles.shareCaption}>
+              Percentages show the share of categories with positive net spending.
+              {refundOffset > 0 ? ` Refunds in other categories reduce the overall net total by ${formatRM(refundOffset)}.` : ""}
+            </Text>
 
             {budgetUnavailable ? (
               <View style={styles.noBudgetCard}>

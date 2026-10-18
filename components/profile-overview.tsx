@@ -36,6 +36,7 @@ type ProfileOverviewProps = {
   onPhoto: () => void;
   onAccounts: () => void;
   onTaxRelief: () => void;
+  onPrivacy?: () => void;
   onToggleFaceId: () => void;
   onLogout: () => void;
   onRetry: () => void;
@@ -212,6 +213,13 @@ export function ProfileOverview(props: ProfileOverviewProps) {
               </View>
             )}
 
+            {props.onPrivacy && <View style={styles.securitySection}>
+              <Text accessibilityRole="header" style={styles.sectionTitle}>Your data</Text>
+              <ActionRow icon="shield-checkmark-outline" title="Privacy & data"
+                description="AI sharing, stored records and account deletion." onPress={props.onPrivacy}
+                disabled={props.signingOut} />
+              <View style={styles.divider} />
+            </View>}
             {props.onGuide && <View style={styles.securitySection}>
               <Text accessibilityRole="header" style={styles.sectionTitle}>Getting started</Text>
               <ActionRow icon="compass-outline" title="SafeSpend guide"

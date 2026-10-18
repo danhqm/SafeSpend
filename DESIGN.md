@@ -5,6 +5,7 @@ colors:
   mint: "#00D09E"
   deep-teal: "#0E3E3E"
   offwhite: "#F1FFF3"
+  detail-canvas: "#F1F8F3"
   field: "#DFF7E2"
   ink: "#093030"
   muted: "#617470"
@@ -208,7 +209,9 @@ The existing shell remains the five-tab Home, Learn, Scan, Fin and Profile dock.
 
 ### Fields and other routes
 
-The approved onboarding/Profile surfaces do not define a new input component. Older routes have not been audited or migrated. Observed drift includes `Poppins_500Medium` referenced in login without being loaded by the root, a white label on a mint landing action, and other inks, white surfaces and field radii in Edit Profile. This document records those differences without approving them as system variants or changing them.
+The seven detail routes using native stack headers now share an approved extension of this identity: deep-teal navigation bars, Poppins Bold titles and a bare mint back arrow with no colored button background. Monthly Budget, Accounts, Add/Edit Account, Record Transfer, Stored Receipt, Transaction Details and Money Skills use a pale-green #F1F8F3 canvas with bounded content, teal summaries and light reading/form surfaces. Main actions on these surfaces use teal with mint text. Their shared primitives are in `utils/screen-theme.ts`; muted copy uses #294B47 for readable contrast. The five-tab dock and pages with existing custom headers retain their own designs. See `.impeccable/surfaces/detail-pages.md` for scope and verification.
+
+The approved surfaces do not define a new input component. Other older routes have not been migrated. Observed drift includes `Poppins_500Medium` referenced in login without being loaded by the root, a white label on a mint landing action, and other inks, white surfaces and field radii in Edit Profile. This document records those differences without approving them as system variants or changing them.
 
 ## Do's and Don'ts
 
