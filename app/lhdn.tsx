@@ -367,7 +367,22 @@ export default function LHDNClaimScreen() {
           <Text style={s.sub}>Excluding a claim keeps its receipt and transaction. Confirmed claims are still subject to annual limits.</Text>
         </ScrollView>}
       </KeyboardAvoidingView></SafeAreaView>
-      <Modal visible={!!image} onRequestClose={()=>setImage(null)}><SafeAreaView style={s.modalSafe}>{button("Close image",()=>setImage(null),true)}{image&&<Image source={{uri:image}} style={s.flex} resizeMode="contain"/>}</SafeAreaView></Modal>
+      <Modal visible={!!image} onRequestClose={()=>setImage(null)}>
+        <SafeAreaView style={s.modalSafe}>
+          <View style={s.header}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Back to claim"
+              onPress={()=>setImage(null)}
+              style={s.backButton}
+            >
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </Pressable>
+            <Text style={s.heading}>Receipt image</Text>
+          </View>
+          {image&&<Image source={{uri:image}} style={s.flex} resizeMode="contain"/>}
+        </SafeAreaView>
+      </Modal>
     </Modal>
     <Modal visible={receiptPicker} onRequestClose={()=>{if(!busy)setReceiptPicker(false);}} animationType="slide">
       <SafeAreaView style={s.modalSafe}>
